@@ -23,6 +23,14 @@ from ofdf.labels.risk import CAUTION, NORMAL, WARNING
 #: 자동 실행을 허용하는 최소 판단 신뢰도. 미만이면 권고모드로 떨어진다.
 CONFIDENCE_THRESHOLD = 0.70
 
+#: 차광 제한 운영 — 대파는 양광성 작물이라 과도한 차광이 연약 생육을 부른다.
+#: 사업계획서: '10시 이전·16시 이후 차광 금지', '고온 경계 30분 지속 시에만
+#: 최대 2시간 차광', 해제조건 '2시간·16시 도달'.
+#: 사유 문구로만 적어 두면 지켜지지 않는다. 엔진이 직접 막는다.
+SHADE_EARLIEST_HOUR = 10
+SHADE_LATEST_HOUR = 16
+SHADE_MAX_MINUTES = 120
+
 
 class Layer(IntEnum):
     """제어 계층. 숫자가 작을수록 우선한다."""
@@ -64,6 +72,12 @@ class SensorState:
     emergency_stop: bool = False
     overcurrent: bool = False
     comms_down: bool = False
+    #: 오늘 차광막을 전개한 **누적** 시간(분). 자정에 0으로 돌아간다.
+    #: 2시간 제한은 하루 총량이다. 걷었다가 다시 펴는 것으로 늘릴 수 없다.
+    shade_deployed_minutes: float = 0.0
+    #: 차광막이 지금 펴져 있는지. 누적시간과 다른 값이다 —
+    #: 2시간을 다 쓰고 걷은 상태는 누적 120분이면서 열려 있지 않다.
+    shade_open: bool = False
 
 
 @dataclass
@@ -82,17 +96,32 @@ class Decision:
 # 위험유형별 추천 조치 (사업계획서 '위험 정답값 정의' 표의 추천조치 열)
 # --------------------------------------------------------------------------
 
-def _heat_dry_actions(level: int) -> list[Action]:
+def _heat_dry_actions(
+    level: int, hour: int, shade_minutes: float, shade_open: bool
+) -> list[Action]:
     if level < CAUTION:
         return []
     actions = [
         Action("관수밸브", "관수 준비·실행", Layer.AI, "고온·건조로 수분 스트레스 예상", "heat_dry"),
         Action("알림", "고온·건조 주의 알림", Layer.AI, "농가 확인 요청", "heat_dry"),
     ]
-    if level >= WARNING:
+
+    within_window = SHADE_EARLIEST_HOUR <= hour < SHADE_LATEST_HOUR
+    within_budget = shade_minutes < SHADE_MAX_MINUTES
+    allowed = within_window and within_budget
+
+    if shade_open and not allowed:
+        reason = (
+            f"{SHADE_LATEST_HOUR}시 도달 — 차광 종료" if not within_window
+            else f"당일 누적 {shade_minutes:.0f}분 — 최대 {SHADE_MAX_MINUTES}분 소진"
+        )
+        actions.append(Action("차광막", "차광 회수", Layer.AI, reason, "heat_dry"))
+    elif level >= WARNING and allowed and not shade_open:
+        remaining = SHADE_MAX_MINUTES - shade_minutes
         actions.append(
-            Action("차광막", "차광 한정 전개(최대 2시간)", Layer.AI,
-                   "경계 30분 지속 — 10시 이전·16시 이후 금지", "heat_dry")
+            Action("차광막", "차광 한정 전개", Layer.AI,
+                   f"고온 경계 — {SHADE_EARLIEST_HOUR}~{SHADE_LATEST_HOUR}시 한정, "
+                   f"당일 잔여 {remaining:.0f}분", "heat_dry")
         )
     return actions
 
@@ -150,7 +179,10 @@ def _compound_actions(level: int, reasons: list[str]) -> list[Action]:
 
 
 RISK_ACTION_BUILDERS = {
-    "heat_dry": lambda level, ctx: _heat_dry_actions(level),
+    "heat_dry": lambda level, ctx: _heat_dry_actions(
+        level, ctx.get("hour", 12), ctx.get("shade_deployed_minutes", 0.0),
+        ctx.get("shade_open", False),
+    ),
     "rain_wet": lambda level, ctx: _rain_wet_actions(level),
     "disease": lambda level, ctx: _disease_actions(level),
     "frost": lambda level, ctx: _frost_actions(level, ctx.get("hour", 12)),
@@ -229,6 +261,7 @@ DEVICE_GROUPS = {
 #: 유리환경에서 금지되는 것은 잎을 적시는 **살수**이고, 잎을 적시지 않는
 #: 점적관수는 막지 않는다. 그래서 막히는 장치를 규칙에 명시한다.
 BLOCKING_RULES = [
+    ("차광 회수", "차광막", ["전개"]),
     ("회수", "차광막", ["전개"]),
     ("회수", "야간피복", ["전개"]),
     ("전개 금지", "차광막", ["전개"]),
@@ -322,7 +355,12 @@ def decide(
         조치도 사유와 함께 남겨 운영기록에 쓴다.
     """
     confidence = confidence or {}
-    context = {"hour": sensors.hour, "compound_reasons": compound_reasons or []}
+    context = {
+        "hour": sensors.hour,
+        "shade_deployed_minutes": sensors.shade_deployed_minutes,
+        "shade_open": sensors.shade_open,
+        "compound_reasons": compound_reasons or [],
+    }
 
     hardware = hardware_actions(sensors)
     field_rules = field_rule_actions(sensors)
