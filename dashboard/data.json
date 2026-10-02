@@ -1,0 +1,617 @@
+{
+  "generated": "2026-10-02T14:08:55.174055",
+  "station": "나주시 공산면",
+  "now": "2021-11-24T21:00:00",
+  "modelVersion": "ofdf-weather-0.1.0",
+  "mode": "자동",
+  "environment": [
+    {
+      "key": "t_air",
+      "name": "기온",
+      "unit": "℃",
+      "value": 3.9
+    },
+    {
+      "key": "canopy_temp",
+      "name": "초관부 온도",
+      "unit": "℃",
+      "value": 3.3
+    },
+    {
+      "key": "rh",
+      "name": "상대습도",
+      "unit": "%",
+      "value": 99.0
+    },
+    {
+      "key": "leaf_wetness",
+      "name": "엽면습윤",
+      "unit": "",
+      "value": 1.0
+    },
+    {
+      "key": "solar_w",
+      "name": "일사",
+      "unit": "W/m²",
+      "value": 0.0
+    },
+    {
+      "key": "rain",
+      "name": "시간 강수",
+      "unit": "mm",
+      "value": 0.0
+    },
+    {
+      "key": "soil_index",
+      "name": "토양수분 지수",
+      "unit": "",
+      "value": 39.0
+    },
+    {
+      "key": "wind_speed",
+      "name": "풍속",
+      "unit": "m/s",
+      "value": 0.7
+    }
+  ],
+  "facility": {
+    "gust3s": 1.2,
+    "rainDetected": false,
+    "soilAboveLimit": false,
+    "shadePosition": 0.0
+  },
+  "cards": [
+    {
+      "risk": "heat_dry",
+      "name": "고온·건조",
+      "horizons": {
+        "1": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.989,
+          "probabilities": [
+            0.989,
+            0.005,
+            0.005
+          ],
+          "actual": 0,
+          "actualName": "정상",
+          "correct": true
+        },
+        "3": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.981,
+          "probabilities": [
+            0.981,
+            0.01,
+            0.01
+          ],
+          "actual": 0,
+          "actualName": "정상",
+          "correct": true
+        }
+      }
+    },
+    {
+      "risk": "rain_wet",
+      "name": "강우·과습",
+      "horizons": {
+        "1": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.883,
+          "probabilities": [
+            0.883,
+            0.043,
+            0.074
+          ],
+          "actual": 0,
+          "actualName": "정상",
+          "correct": true
+        },
+        "3": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.861,
+          "probabilities": [
+            0.861,
+            0.07,
+            0.069
+          ],
+          "actual": 0,
+          "actualName": "정상",
+          "correct": true
+        }
+      }
+    },
+    {
+      "risk": "disease",
+      "name": "병해 유리환경",
+      "horizons": {
+        "1": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.999,
+          "probabilities": [
+            0.999,
+            0.001,
+            0.001
+          ],
+          "actual": 0,
+          "actualName": "정상",
+          "correct": true
+        },
+        "3": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.998,
+          "probabilities": [
+            0.998,
+            0.001,
+            0.001
+          ],
+          "actual": 0,
+          "actualName": "정상",
+          "correct": true
+        }
+      }
+    },
+    {
+      "risk": "frost",
+      "name": "저온·서리",
+      "horizons": {
+        "1": {
+          "level": 1,
+          "levelName": "주의",
+          "confidence": 0.987,
+          "probabilities": [
+            0.008,
+            0.987,
+            0.005
+          ],
+          "actual": 1,
+          "actualName": "주의",
+          "correct": true
+        },
+        "3": {
+          "level": 1,
+          "levelName": "주의",
+          "confidence": 0.936,
+          "probabilities": [
+            0.034,
+            0.936,
+            0.031
+          ],
+          "actual": 1,
+          "actualName": "주의",
+          "correct": true
+        }
+      }
+    },
+    {
+      "risk": "compound",
+      "name": "복합위험",
+      "horizons": {
+        "3": {
+          "level": 0,
+          "levelName": "정상",
+          "confidence": 0.861,
+          "composed": true,
+          "reasons": []
+        }
+      }
+    }
+  ],
+  "judgements": [
+    {
+      "risk": "frost",
+      "name": "저온·서리",
+      "level": 1,
+      "levelName": "주의",
+      "confidence": 0.936,
+      "modelVersion": "ofdf-weather-0.1.0",
+      "expectedOnset": "2021-11-25T00:00:00",
+      "evidence": [
+        {
+          "feature": "t_air",
+          "label": "기온",
+          "value": 3.9,
+          "contribution": 0.966
+        },
+        {
+          "feature": "dew_point",
+          "label": "이슬점",
+          "value": 3.76,
+          "contribution": 0.549
+        },
+        {
+          "feature": "t_air_min24",
+          "label": "기온 24시간 최저",
+          "value": 3.1,
+          "contribution": 0.284
+        }
+      ]
+    }
+  ],
+  "actions": [
+    {
+      "device": "야간피복",
+      "command": "야간 피복 전개",
+      "layer": 2,
+      "reason": "초관부 복사냉각으로 서리 예상",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "device": "관수밸브",
+      "command": "야간·새벽 관수 금지",
+      "layer": 2,
+      "reason": "관수가 동결피해를 키움",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "device": "알림",
+      "command": "서리 경보 — 익일 동해 예찰",
+      "layer": 2,
+      "reason": "잎 끝 황화·동해 확인",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    }
+  ],
+  "history": [
+    {
+      "time": "2021-11-24T14:00:00",
+      "layer": 1,
+      "device": "차광막·피복",
+      "command": "전개 금지",
+      "reason": "3초 순간최대풍속 7.2m/s",
+      "riskType": "",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T19:00:00",
+      "layer": 2,
+      "device": "야간피복",
+      "command": "야간 피복 전개",
+      "reason": "초관부 복사냉각으로 서리 예상",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T19:00:00",
+      "layer": 2,
+      "device": "관수밸브",
+      "command": "야간·새벽 관수 금지",
+      "reason": "관수가 동결피해를 키움",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T19:00:00",
+      "layer": 2,
+      "device": "알림",
+      "command": "서리 경보 — 익일 동해 예찰",
+      "reason": "잎 끝 황화·동해 확인",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T20:00:00",
+      "layer": 2,
+      "device": "야간피복",
+      "command": "야간 피복 전개",
+      "reason": "초관부 복사냉각으로 서리 예상",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T20:00:00",
+      "layer": 2,
+      "device": "관수밸브",
+      "command": "야간·새벽 관수 금지",
+      "reason": "관수가 동결피해를 키움",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T20:00:00",
+      "layer": 2,
+      "device": "알림",
+      "command": "서리 경보 — 익일 동해 예찰",
+      "reason": "잎 끝 황화·동해 확인",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T21:00:00",
+      "layer": 2,
+      "device": "야간피복",
+      "command": "야간 피복 전개",
+      "reason": "초관부 복사냉각으로 서리 예상",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T21:00:00",
+      "layer": 2,
+      "device": "관수밸브",
+      "command": "야간·새벽 관수 금지",
+      "reason": "관수가 동결피해를 키움",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    },
+    {
+      "time": "2021-11-24T21:00:00",
+      "layer": 2,
+      "device": "알림",
+      "command": "서리 경보 — 익일 동해 예찰",
+      "reason": "잎 끝 황화·동해 확인",
+      "riskType": "frost",
+      "executed": true,
+      "rejectedBy": "",
+      "advisory": false
+    }
+  ],
+  "series": {
+    "time": [
+      "2021-11-23T22:00:00",
+      "2021-11-23T23:00:00",
+      "2021-11-24T00:00:00",
+      "2021-11-24T01:00:00",
+      "2021-11-24T02:00:00",
+      "2021-11-24T03:00:00",
+      "2021-11-24T04:00:00",
+      "2021-11-24T05:00:00",
+      "2021-11-24T06:00:00",
+      "2021-11-24T07:00:00",
+      "2021-11-24T08:00:00",
+      "2021-11-24T09:00:00",
+      "2021-11-24T10:00:00",
+      "2021-11-24T11:00:00",
+      "2021-11-24T12:00:00",
+      "2021-11-24T13:00:00",
+      "2021-11-24T14:00:00",
+      "2021-11-24T15:00:00",
+      "2021-11-24T16:00:00",
+      "2021-11-24T17:00:00",
+      "2021-11-24T18:00:00",
+      "2021-11-24T19:00:00",
+      "2021-11-24T20:00:00",
+      "2021-11-24T21:00:00"
+    ],
+    "t_air": [
+      7.4,
+      7.6,
+      7.8,
+      7.7,
+      8.0,
+      7.8,
+      7.7,
+      7.0,
+      6.6,
+      3.1,
+      3.3,
+      7.1,
+      10.3,
+      12.2,
+      12.4,
+      13.6,
+      13.4,
+      12.5,
+      11.4,
+      10.5,
+      9.1,
+      7.9,
+      5.8,
+      3.9
+    ],
+    "canopy_temp": [
+      7.1,
+      7.4,
+      7.1,
+      7.2,
+      7.5,
+      7.1,
+      7.0,
+      6.1,
+      5.3,
+      2.4,
+      3.3,
+      7.1,
+      10.3,
+      12.2,
+      12.4,
+      13.6,
+      13.4,
+      12.5,
+      11.4,
+      9.3,
+      8.0,
+      7.0,
+      5.4,
+      3.3
+    ],
+    "rh": [
+      69.0,
+      68.0,
+      66.0,
+      66.0,
+      67.0,
+      65.0,
+      61.0,
+      66.0,
+      69.0,
+      94.0,
+      99.0,
+      83.0,
+      71.0,
+      61.0,
+      61.0,
+      56.0,
+      58.0,
+      59.0,
+      62.0,
+      71.0,
+      79.0,
+      84.0,
+      96.0,
+      99.0
+    ],
+    "leaf_wetness": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      1.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      1.0,
+      1.0
+    ],
+    "solar_w": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      111.0,
+      250.0,
+      222.0,
+      417.0,
+      278.0,
+      611.0,
+      444.0,
+      222.0,
+      28.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "rain": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+    ],
+    "soil_index": [
+      42.0,
+      42.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      41.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      40.0,
+      39.0
+    ],
+    "wind_speed": [
+      2.2,
+      2.9,
+      1.4,
+      1.8,
+      2.0,
+      1.3,
+      1.6,
+      1.0,
+      0.4,
+      0.4,
+      0.1,
+      0.5,
+      1.5,
+      1.2,
+      2.5,
+      3.7,
+      4.0,
+      3.5,
+      2.2,
+      0.4,
+      0.3,
+      0.5,
+      1.2,
+      0.7
+    ]
+  }
+}

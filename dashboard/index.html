@@ -1,0 +1,437 @@
+<title>노지 대파 재해위험 관제</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<style>
+/* 레이아웃: 제어반 계기판 — 고정 상태바 / 위험카드 격자 / 판단·조치 2열 / 24시간 추이 / 제어 이력 */
+:root {
+  --plane:        #f2f3ef;   /* 페이지 바탕 — 작물 녹색 쪽으로 아주 조금 기운 중립 */
+  --surface:      #fcfcfb;   /* 카드·차트 면 */
+  --surface-sunk: #e9ebe5;
+  --line:         #d6d9d0;
+  --line-soft:    #e4e7de;
+  --ink:          #14160f;
+  --ink-2:        #52554a;
+  --ink-3:        #7c8072;
+
+  --series-air:    #2a78d6;  /* 기온 — 검증된 계열 1 */
+  --series-canopy: #eb6834;  /* 초관부 온도 — 검증된 계열 2 */
+
+  --good:     #0ca30c;       /* 상태색: 고정, 테마 불변. 반드시 라벨과 함께 쓴다 */
+  --warning:  #fab219;
+  --critical: #d03b3b;
+  --good-ink:     #076b07;
+  --warning-ink:  #7a5200;
+  --critical-ink: #a32a2a;
+
+  --font-ui:  "IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+  --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
+
+  --r: 6px;
+  --gap: 14px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --plane: #0d0e0c; --surface: #1a1a19; --surface-sunk: #242520;
+    --line: #35372f; --line-soft: #2a2b26;
+    --ink: #f3f4ee; --ink-2: #b9bcae; --ink-3: #888b7d;
+    --series-air: #3987e5; --series-canopy: #d95926;
+    --good-ink: #4cc24c; --warning-ink: #e5b445; --critical-ink: #e87878;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --plane: #0d0e0c; --surface: #1a1a19; --surface-sunk: #242520;
+  --line: #35372f; --line-soft: #2a2b26;
+  --ink: #f3f4ee; --ink-2: #b9bcae; --ink-3: #888b7d;
+  --series-air: #3987e5; --series-canopy: #d95926;
+  --good-ink: #4cc24c; --warning-ink: #e5b445; --critical-ink: #e87878;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--plane); color: var(--ink);
+  font-family: var(--font-ui); font-size: 14px; line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+.wrap { max-width: 1100px; margin: 0 auto; padding-inline: 16px; padding-block: 0 48px; }
+
+/* ── 상태바 ── */
+.bar {
+  position: sticky; top: env(safe-area-inset-top, 0px); z-index: 20;
+  background: var(--surface); border-bottom: 1px solid var(--line);
+  margin-inline: -16px; padding: 10px 16px;
+  display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 16px;
+}
+.bar h1 { font-size: 15px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.bar .site { font-size: 13px; color: var(--ink-2); }
+.bar .clock { font-family: var(--font-num); font-size: 13px; color: var(--ink-2); font-variant-numeric: tabular-nums; }
+.bar .spacer { flex: 1 1 auto; min-width: 0; }
+.mode {
+  font-size: 12px; font-weight: 600; padding: 3px 9px; border-radius: 99px;
+  border: 1px solid currentColor;
+}
+.mode.auto { color: var(--good-ink); }
+.mode.advisory { color: var(--warning-ink); }
+.mode.halt { color: var(--critical-ink); }
+
+section { margin-top: 28px; }
+.head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.head h2 { font-size: 14px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
+.screen {
+  font-family: var(--font-num); font-size: 11px; font-weight: 600;
+  color: var(--ink-3); border: 1px solid var(--line); border-radius: 3px; padding: 1px 5px;
+}
+.head p { margin: 0; font-size: 12.5px; color: var(--ink-3); }
+
+/* ── 위험카드 ── */
+.cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(188px, 1fr)); gap: var(--gap); }
+.card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 12px 13px; min-width: 0; display: flex; flex-direction: column; gap: 10px;
+}
+.card.lv2 { border-color: var(--critical); }
+.card.lv1 { border-color: var(--warning); }
+.card > .name { font-weight: 600; font-size: 13.5px; }
+.rows { display: flex; flex-direction: column; gap: 7px; }
+.row { display: grid; grid-template-columns: 30px 1fr auto; align-items: center; gap: 8px; }
+.row .h { font-family: var(--font-num); font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 99px;
+  background: var(--surface-sunk);
+}
+.pill::before { content: ""; width: 7px; height: 7px; border-radius: 50%; background: var(--good); flex: none; }
+.pill.lv1 { color: var(--warning-ink); } .pill.lv1::before { background: var(--warning); }
+.pill.lv2 { color: var(--critical-ink); } .pill.lv2::before { background: var(--critical); }
+.pill.lv0 { color: var(--good-ink); }
+.conf { font-family: var(--font-num); font-size: 11.5px; color: var(--ink-3); font-variant-numeric: tabular-nums; }
+.verdict { font-size: 11.5px; color: var(--ink-3); border-top: 1px solid var(--line-soft); padding-top: 8px; }
+.verdict b { color: var(--good-ink); font-weight: 600; }
+
+/* ── 환경 계기 ── */
+/* 항목이 8개라 4열·2열에서만 빈 칸 없이 떨어진다 */
+.gauges { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1px;
+          background: var(--line); border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
+@media (max-width: 640px) { .gauges { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.gauge { background: var(--surface); padding: 10px 12px; min-width: 0; }
+.gauge dt { font-size: 11.5px; color: var(--ink-3); margin: 0 0 3px; }
+.gauge dd { margin: 0; font-family: var(--font-num); font-size: 19px; font-weight: 500;
+            font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.gauge dd span { font-size: 12px; color: var(--ink-3); margin-left: 2px; font-weight: 400; }
+
+/* ── 2열 ── */
+.split { display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr); gap: var(--gap); }
+@media (max-width: 720px) { .split { grid-template-columns: 1fr; } }
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 13px 14px; min-width: 0; }
+.panel > h3 { margin: 0 0 3px; font-size: 13.5px; font-weight: 600; }
+.panel > .sub { margin: 0 0 11px; font-size: 12px; color: var(--ink-3); }
+
+.ev { display: flex; flex-direction: column; gap: 9px; }
+.ev-item { display: grid; grid-template-columns: 1fr auto; gap: 2px 10px; align-items: baseline; }
+.ev-item .k { font-size: 12.5px; }
+.ev-item .v { font-family: var(--font-num); font-size: 12.5px; font-variant-numeric: tabular-nums; color: var(--ink-2); }
+.ev-bar { grid-column: 1 / -1; height: 5px; border-radius: 3px; background: var(--surface-sunk); overflow: hidden; }
+.ev-bar i { display: block; height: 100%; border-radius: 3px; background: var(--good); }
+.ev.lv1 .ev-bar i { background: var(--warning); }
+.ev.lv2 .ev-bar i { background: var(--critical); }
+
+.acts { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.act { display: grid; grid-template-columns: auto 1fr; gap: 9px; align-items: start; }
+.tag {
+  font-family: var(--font-num); font-size: 10.5px; font-weight: 600; letter-spacing: .02em;
+  padding: 2px 6px; border-radius: 3px; white-space: nowrap;
+  background: var(--surface-sunk); color: var(--ink-2); border: 1px solid var(--line);
+}
+.tag.run { color: var(--good-ink); border-color: currentColor; }
+.tag.adv { color: var(--warning-ink); border-color: currentColor; }
+.tag.no  { color: var(--critical-ink); border-color: currentColor; }
+.act .cmd { font-size: 13px; font-weight: 500; }
+.act .why { font-size: 12px; color: var(--ink-3); }
+
+/* ── 차트 ── */
+.chart { background: var(--surface); border: 1px solid var(--line); border-radius: var(--r); padding: 13px 14px 6px; }
+.legend { display: flex; flex-wrap: wrap; gap: 14px; margin-bottom: 8px; }
+.legend span { display: inline-flex; align-items: center; gap: 6px; font-size: 12.5px; color: var(--ink-2); }
+.legend i { width: 14px; height: 2px; border-radius: 1px; flex: none; }
+.legend i.dash { background: none; border-top: 2px dashed var(--ink-3); height: 0; }
+svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
+.tip {
+  position: absolute; pointer-events: none; opacity: 0; transition: opacity .1s;
+  background: var(--surface); border: 1px solid var(--line); border-radius: var(--r);
+  padding: 7px 10px; font-size: 12px; box-shadow: 0 3px 14px rgb(0 0 0 / .14); z-index: 10;
+  font-variant-numeric: tabular-nums; white-space: nowrap;
+}
+.tip b { font-family: var(--font-num); font-weight: 600; }
+.chart-wrap { position: relative; }
+
+/* ── 이력 표 ── */
+.scroll { overflow-x: auto; border: 1px solid var(--line); border-radius: var(--r); background: var(--surface); }
+table { border-collapse: collapse; width: 100%; font-size: 12.5px; min-width: 560px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line-soft); white-space: nowrap; }
+th { font-size: 11.5px; font-weight: 600; color: var(--ink-3); background: var(--surface-sunk); position: sticky; top: 0; }
+tbody tr:last-child td { border-bottom: 0; }
+td.t, td.l { font-family: var(--font-num); font-variant-numeric: tabular-nums; color: var(--ink-2); }
+footer { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
+footer p { margin: 0 0 5px; }
+:focus-visible { outline: 2px solid var(--series-air); outline-offset: 2px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+
+<div class="wrap">
+  <div class="bar">
+    <h1>노지 대파 재해위험 관제</h1>
+    <span class="site" id="site">—</span>
+    <span class="clock" id="clock">—</span>
+    <span class="spacer"></span>
+    <span class="mode auto" id="mode">—</span>
+  </div>
+
+  <section>
+    <div class="head">
+      <h2>위험 판단</h2><span class="screen">M1</span>
+      <p id="cards-note">1시간·3시간 뒤 도달할 위험등급</p>
+    </div>
+    <div class="cards" id="cards"></div>
+  </section>
+
+  <section>
+    <div class="head"><h2>현장 환경</h2><span class="screen">M1</span></div>
+    <dl class="gauges" id="gauges"></dl>
+  </section>
+
+  <section>
+    <div class="split">
+      <div class="panel">
+        <h3 id="ev-title">판단근거</h3>
+        <p class="sub" id="ev-sub">AI가 이 등급을 매긴 상위 3개 변수</p>
+        <div class="ev" id="evidence"></div>
+      </div>
+      <div class="panel">
+        <h3>조치 <span class="screen">M2</span></h3>
+        <p class="sub">제어 계층 우선순위를 적용한 결과</p>
+        <ul class="acts" id="actions"></ul>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <h2>24시간 추이</h2><span class="screen">M1</span>
+      <p>대파 서리피해는 기온이 아니라 초관부(지상 10cm) 온도로 결정된다</p>
+    </div>
+    <div class="chart">
+      <div class="legend">
+        <span><i style="background:var(--series-air)"></i>기온</span>
+        <span><i style="background:var(--series-canopy)"></i>초관부 온도</span>
+        <span><i class="dash"></i>서리 기준 (주의 2℃ · 경계 0℃)</span>
+      </div>
+      <div class="chart-wrap">
+        <svg id="plot" viewBox="0 0 760 260" role="img" aria-label="24시간 기온과 초관부 온도 추이"></svg>
+        <div class="tip" id="tip"></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="head">
+      <h2>제어 이력</h2><span class="screen">M3</span>
+      <p>L0 하드웨어 안전 · L1 현장 즉응 · L2 AI 선행판단 · L3 사용자</p>
+    </div>
+    <div class="scroll">
+      <table>
+        <thead><tr><th>시각</th><th>계층</th><th>장치</th><th>명령</th><th>결과</th></tr></thead>
+        <tbody id="history"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <footer id="foot"></footer>
+</div>
+
+<script>
+const LV = ["정상", "주의", "경계"];
+const $ = (id) => document.getElementById(id);
+const fmt = (iso, withDate) => {
+  const d = new Date(iso);
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  if (!withDate) return `${hh}:${mm}`;
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")} ${hh}:${mm}`;
+};
+
+function render(d) {
+  $("site").textContent = d.station;
+  $("clock").textContent = fmt(d.now, true);
+  const mode = $("mode");
+  mode.textContent = d.mode;
+  mode.className = "mode " + (d.mode === "자동" ? "auto" : d.mode === "안전정지" ? "halt" : "advisory");
+
+  // 위험카드
+  $("cards").innerHTML = d.cards.map((c) => {
+    const top = Math.max(...Object.values(c.horizons).map((h) => h.level));
+    const rows = Object.entries(c.horizons).map(([h, v]) => `
+      <div class="row">
+        <span class="h">${h}시간</span>
+        <span><span class="pill lv${v.level}">${v.levelName}</span></span>
+        <span class="conf">${v.confidence.toFixed(2)}</span>
+      </div>`).join("");
+    const checked = Object.values(c.horizons).filter((v) => "correct" in v);
+    const hit = checked.filter((v) => v.correct).length;
+    const note = c.horizons["3"] && c.horizons["3"].composed
+      ? `구성 위험 조합${c.horizons["3"].reasons.length ? " — " + c.horizons["3"].reasons[0] : ""}`
+      : checked.length ? `실측 대조 <b>${hit}/${checked.length} 적중</b>` : "";
+    return `<article class="card lv${top}">
+      <div class="name">${c.name}</div>
+      <div class="rows">${rows}</div>
+      ${note ? `<div class="verdict">${note}</div>` : ""}
+    </article>`;
+  }).join("");
+
+  // 환경 계기
+  $("gauges").innerHTML = d.environment.map((e) => `
+    <div class="gauge">
+      <dt>${e.name}</dt>
+      <dd>${e.value === null ? "—" : e.value}${e.unit ? `<span>${e.unit}</span>` : ""}</dd>
+    </div>`).join("");
+
+  // 판단근거
+  const j = d.judgements[0];
+  if (j) {
+    $("ev-title").innerHTML = `판단근거 — ${j.name} <span class="pill lv${j.level}">${j.levelName}</span>`;
+    $("ev-sub").textContent =
+      `신뢰도 ${j.confidence.toFixed(2)} · 예상 ${fmt(j.expectedOnset)} · ${j.modelVersion}`;
+    const max = Math.max(...j.evidence.map((e) => Math.abs(e.contribution)));
+    $("evidence").className = "ev lv" + j.level;
+    $("evidence").innerHTML = j.evidence.map((e) => `
+      <div class="ev-item">
+        <span class="k">${e.label}</span>
+        <span class="v">${e.value} · 기여 ${e.contribution > 0 ? "+" : ""}${e.contribution.toFixed(2)}</span>
+        <span class="ev-bar"><i style="width:${(Math.abs(e.contribution) / max * 100).toFixed(1)}%"></i></span>
+      </div>`).join("");
+  } else {
+    $("ev-title").textContent = "판단근거";
+    $("ev-sub").textContent = "현재 주의 이상 위험이 없다";
+    $("evidence").innerHTML = `<p style="margin:0;font-size:13px;color:var(--ink-3)">전 위험유형 정상</p>`;
+  }
+
+  // 조치
+  $("actions").innerHTML = d.actions.length ? d.actions.map((a) => {
+    const state = a.rejectedBy ? ["no", "거부"] : a.advisory ? ["adv", "권고"] : ["run", "실행"];
+    return `<li class="act">
+      <span class="tag ${state[0]}">L${a.layer} ${state[1]}</span>
+      <span><span class="cmd">${a.device} · ${a.command}</span><br>
+      <span class="why">${a.rejectedBy || a.reason}</span></span>
+    </li>`;
+  }).join("") : `<li style="font-size:13px;color:var(--ink-3)">조치 없음</li>`;
+
+  // 제어 이력
+  $("history").innerHTML = d.history.slice().reverse().slice(0, 14).map((h) => {
+    const state = h.rejectedBy ? ["no", "거부"] : h.advisory ? ["adv", "권고"] : ["run", "실행"];
+    return `<tr>
+      <td class="t">${fmt(h.time)}</td><td class="l">L${h.layer}</td>
+      <td>${h.device}</td><td>${h.command}</td>
+      <td><span class="tag ${state[0]}">${state[1]}</span></td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="5" style="color:var(--ink-3)">기록 없음</td></tr>`;
+
+  $("foot").innerHTML =
+    `<p>나주 농업기상 관측자료에 학습된 모델을 돌리고 조치 엔진을 거친 실제 결과다. 꾸며 낸 숫자가 아니다.</p>
+     <p>모델 ${d.modelVersion} · 산출 ${fmt(d.generated, true)}</p>`;
+
+  lastSeries = d.series;
+  drawPlot(d.series);
+}
+
+function drawPlot(s) {
+  const svg = $("plot"), tip = $("tip");
+  // 좁은 화면에서는 가로로 납작해져 눈금이 뭉개진다. 비율을 세로로 키운다.
+  const narrow = svg.clientWidth > 0 && svg.clientWidth < 560;
+  const W = narrow ? 440 : 760, H = narrow ? 330 : 260;
+  const L = narrow ? 34 : 42, R = narrow ? 14 : 20, T = 14, B = narrow ? 34 : 30;
+  const fs = narrow ? 13 : 11;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const n = s.time.length;
+  const air = s.t_air, canopy = s.canopy_temp;
+
+  const vals = [...air, ...canopy].filter((v) => v !== null);
+  let lo = Math.min(...vals, 0), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.12 || 1;
+  lo = Math.floor(lo - pad); hi = Math.ceil(hi + pad);
+
+  const x = (i) => L + (i / (n - 1)) * (W - L - R);
+  const y = (v) => T + (1 - (v - lo) / (hi - lo)) * (H - T - B);
+
+  const step = Math.max(1, Math.ceil((hi - lo) / 5));
+  let ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi; v += step) ticks.push(v);
+
+  const path = (a) => a.map((v, i) => (v === null ? null : `${i === 0 || a[i - 1] === null ? "M" : "L"}${x(i).toFixed(1)},${y(v).toFixed(1)}`))
+    .filter(Boolean).join(" ");
+
+  const grid = ticks.map((v) => `
+    <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}" stroke="var(--line-soft)" stroke-width="1"/>
+    <text x="${L - 7}" y="${(y(v) + 4).toFixed(1)}" text-anchor="end" font-size="${fs}" fill="var(--ink-3)" font-family="var(--font-num)">${v}</text>`).join("");
+
+  const thresholds = [[2, "주의 2℃"], [0, "경계 0℃"]]
+    .filter(([v]) => v >= lo && v <= hi)
+    .map(([v, label]) => `
+      <line x1="${L}" y1="${y(v).toFixed(1)}" x2="${W - R}" y2="${y(v).toFixed(1)}"
+            stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="5 4"/>
+      <text x="${L + 4}" y="${(y(v) - 5).toFixed(1)}" text-anchor="start" font-size="${fs}" fill="var(--ink-3)">${label}</text>`).join("");
+
+  // 마지막 라벨은 축 끝에 붙으므로 끝맞춤해야 잘리지 않는다
+  const every = narrow ? 6 : (n > 16 ? 4 : 2);
+  const xlab = s.time.map((t, i) => {
+    const last = i === n - 1;
+    if (!last && i % every !== 0) return "";
+    if (!last && i > n - 1 - every / 2) return "";
+    return `<text x="${x(i).toFixed(1)}" y="${H - (narrow ? 11 : 9)}" text-anchor="${last ? "end" : i === 0 ? "start" : "middle"}"
+      font-size="${fs}" fill="var(--ink-3)" font-family="var(--font-num)">${fmt(t)}</text>`;
+  }).join("");
+
+  const last = (a) => { for (let i = a.length - 1; i >= 0; i--) if (a[i] !== null) return i; return -1; };
+  const ia = last(air), ic = last(canopy);
+
+  svg.innerHTML = `
+    ${grid}${thresholds}
+    <line x1="${L}" y1="${H - B}" x2="${W - R}" y2="${H - B}" stroke="var(--line)" stroke-width="1"/>
+    ${xlab}
+    <path d="${path(air)}" fill="none" stroke="var(--series-air)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    <path d="${path(canopy)}" fill="none" stroke="var(--series-canopy)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>
+    ${ia >= 0 ? `<circle cx="${x(ia).toFixed(1)}" cy="${y(air[ia]).toFixed(1)}" r="4.5" fill="var(--series-air)" stroke="var(--surface)" stroke-width="2"/>` : ""}
+    ${ic >= 0 ? `<circle cx="${x(ic).toFixed(1)}" cy="${y(canopy[ic]).toFixed(1)}" r="4.5" fill="var(--series-canopy)" stroke="var(--surface)" stroke-width="2"/>` : ""}
+    <line id="cross" x1="0" y1="${T}" x2="0" y2="${H - B}" stroke="var(--ink-3)" stroke-width="1" opacity="0"/>`;
+
+  const cross = svg.querySelector("#cross");
+  const move = (ev) => {
+    const box = svg.getBoundingClientRect();
+    const px = ((ev.touches ? ev.touches[0].clientX : ev.clientX) - box.left) / box.width * W;
+    let i = Math.round((px - L) / (W - L - R) * (n - 1));
+    i = Math.max(0, Math.min(n - 1, i));
+    cross.setAttribute("x1", x(i)); cross.setAttribute("x2", x(i)); cross.setAttribute("opacity", "0.5");
+    tip.style.opacity = "1";
+    tip.innerHTML = `${fmt(s.time[i])} &nbsp; 기온 <b>${air[i] ?? "—"}</b>℃ &nbsp; 초관부 <b>${canopy[i] ?? "—"}</b>℃`;
+    const w = tip.offsetWidth;
+    tip.style.left = Math.max(0, Math.min(box.width - w, x(i) / W * box.width - w / 2)) + "px";
+    tip.style.top = "0px";
+  };
+  svg.addEventListener("pointermove", move);
+  svg.addEventListener("touchmove", move, { passive: true });
+  svg.addEventListener("pointerleave", () => { cross.setAttribute("opacity", "0"); tip.style.opacity = "0"; });
+}
+
+// 화면 폭이 바뀌면 차트 비율을 다시 잡는다
+let redrawTimer, lastSeries;
+addEventListener("resize", () => {
+  clearTimeout(redrawTimer);
+  redrawTimer = setTimeout(() => lastSeries && drawPlot(lastSeries), 180);
+});
+
+fetch("data.json")
+  .then((r) => r.json())
+  .then(render)
+  .catch(() => {
+    $("site").textContent = "데이터를 불러오지 못했습니다";
+    $("foot").innerHTML = "<p>data.json 을 함께 배포해야 화면이 채워진다.</p>";
+  });
+</script>
