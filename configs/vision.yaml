@@ -1,0 +1,55 @@
+# 비전 병해 진단 모델 설정
+
+data:
+  image_dirs:
+    - data/vision/train_disease
+    - data/vision/val_disease
+    - data/vision/val_normal
+  label_dirs:
+    - data/vision/label_train_disease
+    - data/vision/label_val_disease
+    - data/vision/label_val_normal
+  crop_code: 9                # AI-Hub 작물코드 9 = 파/대파
+  cache: artifacts/vision/crops224.npy
+
+preprocess:
+  image_size: 224
+  bbox_padding: 0.08          # 병반 주변 건전조직을 함께 담아야 번짐 정도를 안다
+
+classes:
+  disease: [0, 16, 17, 18]    # 0 정상
+  risk: [0, 1, 2, 3]          # 정상 / 초기 / 중기 / 말기
+
+split:
+  # 촬영 세션 32개 중 29개가 단일 질병코드다. 질병코드 17은 세션이 3개뿐이라
+  # 병해별로 세션을 배분하지 않으면 시험셋에서 통째로 빠진다.
+  by: session
+  stratify: disease
+  test_size: 0.25
+  valid_size: 0.15
+  seed: 42
+
+path: descriptor              # descriptor | cnn
+
+descriptor:
+  model:
+    objective: multiclass
+    learning_rate: 0.05
+    num_leaves: 31
+    min_data_in_leaf: 20
+    feature_fraction: 0.7
+    bagging_fraction: 0.8
+    num_boost_round: 800
+    early_stopping_rounds: 60
+
+cnn:
+  backbone: resnet18
+  # 사전학습 가중치 호스트(download.pytorch.org)에 접근할 수 없으면 false.
+  # 처음부터 학습하면 성능이 떨어진다.
+  pretrained: true
+  batch_size: 32
+  epochs: 15
+  learning_rate: 0.0003
+  weight_decay: 0.0001
+  dropout: 0.2
+  risk_loss_weight: 0.5       # 병해 종류 손실 대비 심각도 손실 가중치
