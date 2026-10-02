@@ -1,0 +1,13 @@
+# 핵심
+numpy>=1.26
+pandas>=2.2
+scikit-learn>=1.4
+lightgbm>=4.3
+pyyaml>=6.0
+
+# 데이터 수집/파싱
+requests>=2.31
+lxml>=5.0            # 농업기상 HTML(.xls) 테이블 파싱
+
+# 비전 (선택: pip install -r requirements-vision.txt)
+# torch, torchvision, pillow

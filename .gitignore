@@ -1,0 +1,17 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+
+# 데이터 / 산출물 (저장소에 커밋하지 않음)
+data/
+artifacts/
+runs/
+*.zip
+*.xls
+*.nc
+
+# 비밀값
+.env
+*.key
+credentials*.json
