@@ -29,7 +29,12 @@ split:
   valid_size: 0.15
   seed: 42
 
-path: descriptor              # descriptor | cnn
+# descriptor | cnn
+# 사전학습 가중치가 없으면 descriptor 가 낫다. 같은 분할·같은 시험셋에서
+# 병해 종류 Macro F1 이 0.818 대 0.777 이고, 정상 판별은 0.996 대 0.908 이다.
+# 학습 영상이 2,285장뿐이라 CNN 이 처음부터 배우기에는 부족하다.
+# ImageNet 가중치를 받을 수 있게 되면 cnn 으로 바꿔 재평가할 것.
+path: descriptor
 
 descriptor:
   model:
