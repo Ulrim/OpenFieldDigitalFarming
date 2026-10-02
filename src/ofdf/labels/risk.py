@@ -39,6 +39,14 @@ import pandas as pd
 
 NORMAL, CAUTION, WARNING = 0, 1, 2
 
+#: 엽면습윤을 '젖음'으로 볼 기준값.
+#:
+#: 대리지표는 0.0/1.0 만 내보내지만 **실측 엽면습윤센서는 0~1 연속값**이고,
+#: 마른 상태에서도 0.05 안팎의 바닥 잡음이 올라온다. 0 초과를 젖음으로 보면
+#: 마른 날에도 습윤 지속시간이 끝없이 쌓여 병해 주의가 상시 발령된다.
+#: 센서 제조사 권장 임계(보통 전체 범위의 30~50%)에 맞춰 현장에서 조정한다.
+LEAF_WETNESS_THRESHOLD = 0.5
+
 #: AI 판단 대상 위험유형
 RISK_TYPES = ["heat_dry", "rain_wet", "disease", "frost", "compound"]
 
@@ -120,9 +128,13 @@ def _rolling_hours(mask: pd.Series, hours: int) -> pd.Series:
     return mask.rolling(hours, min_periods=hours).sum().ge(hours).fillna(False)
 
 
-def _wet_run_length(wet: pd.Series) -> pd.Series:
-    """엽면습윤이 현재까지 몇 시간 연속됐는지 센다."""
-    wet_bool = wet.fillna(0).astype(bool)
+def _wet_run_length(wet: pd.Series, threshold: float = LEAF_WETNESS_THRESHOLD) -> pd.Series:
+    """엽면습윤이 현재까지 몇 시간 연속됐는지 센다.
+
+    ``threshold`` 이상을 젖음으로 본다. 실측센서의 바닥 잡음(마른 상태에서도
+    0.05 안팎)을 젖음으로 세지 않기 위해 필요하다.
+    """
+    wet_bool = (wet.fillna(0) >= threshold)
     block = (~wet_bool).cumsum()
     return wet_bool.groupby(block).cumsum().astype(float)
 

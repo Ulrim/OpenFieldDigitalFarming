@@ -12,6 +12,8 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
+from ofdf.labels.risk import LEAF_WETNESS_THRESHOLD
+
 #: 구간 통계를 만들 기본 변수
 BASE_VARIABLES = [
     "t_air", "rh", "rain", "solar_w", "wind_speed",
@@ -61,7 +63,8 @@ def duration_features(df: pd.DataFrame) -> pd.DataFrame:
         return flag.groupby(block).cumsum().astype(float)
 
     conditions = {
-        "run_wet": _safe(df, "leaf_wetness") > 0.5,
+        # 실측 엽면습윤센서는 연속값이라 바닥 잡음이 있다. 라벨과 같은 임계를 쓴다.
+        "run_wet": _safe(df, "leaf_wetness") >= LEAF_WETNESS_THRESHOLD,
         "run_rh90": _safe(df, "rh") >= 90.0,
         "run_rain": _safe(df, "rain") > 0.0,
         "run_dry": _safe(df, "rain").fillna(0.0) <= 0.0,
