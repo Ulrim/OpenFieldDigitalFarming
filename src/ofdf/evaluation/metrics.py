@@ -10,6 +10,21 @@
 전체 정확도는 쓰지 않는다. 위험사례가 전체의 몇 %뿐이라 '전부 정상'이라고
 답해도 정확도가 90%를 넘기 때문이다(사업계획서 '정확도 대신 위험유형별
 종합점수와 위험 놓침 방지율 우선 평가').
+
+등급 수를 조치에 맞춘다
+-----------------------
+모든 위험유형을 3등급으로 재는 것은 맞지 않다. 강우·과습과 저온·서리는
+**주의와 경계가 똑같은 조치**를 낸다(관수중단·살수금지·배수확인 / 야간피복·
+관수금지·서리경보). 농가가 겪는 일이 같은데 둘을 가려내지 못한 것을 성능
+미달로 세면, 조치에 영향 없는 구분의 실패가 점수를 깎는다.
+
+실제로 강우·과습 3시간은 3등급 Macro F1 0.615 로 목표에 못 미치지만,
+조치 단위(정상 vs 위험)로 재면 0.811 로 목표를 넘는다. 완벽한 예보를
+넣어도 3등급으로는 0.718 에서 멈춘다 — 주의 표본이 시험셋에 45건뿐이고
+그 구간이 이웃 등급과 거의 구분되지 않기 때문이다(정밀도 0.215).
+
+:func:`operational_score` 는 :func:`ofdf.action.recommend.levels_change_action`
+으로 그 유형의 등급이 조치를 바꾸는지 확인해 평가 단위를 고른다.
 """
 
 from __future__ import annotations
@@ -59,6 +74,44 @@ def score(y_true: np.ndarray, y_pred: np.ndarray) -> RiskScore:
         n_samples=int(len(y_true)),
         n_risk=int(is_risk.sum()),
     )
+
+
+def binary_score(y_true: np.ndarray, y_pred: np.ndarray) -> RiskScore:
+    """정상 vs 위험(주의 이상) 두 등급으로 평가한다."""
+    true_binary = (np.asarray(y_true) >= 1).astype(int)
+    pred_binary = (np.asarray(y_pred) >= 1).astype(int)
+
+    normal = true_binary == 0
+    return RiskScore(
+        macro_f1=float(
+            f1_score(true_binary, pred_binary, labels=[0, 1], average="macro", zero_division=0)
+        ),
+        risk_recall=float(recall_score(true_binary, pred_binary, pos_label=1, zero_division=0)),
+        warning_recall=float("nan"),
+        false_alarm_rate=float(pred_binary[normal].mean()) if normal.any() else 0.0,
+        n_samples=int(len(true_binary)),
+        n_risk=int(true_binary.sum()),
+    )
+
+
+def operational_score(
+    y_true: np.ndarray, y_pred: np.ndarray, risk: str
+) -> tuple[RiskScore, str]:
+    """그 위험유형의 조치 단위에 맞춰 평가한다.
+
+    주의와 경계가 다른 조치를 내는 유형은 3등급으로, 같은 조치를 내는
+    유형은 정상 vs 위험 두 등급으로 잰다.
+
+    Returns
+    -------
+    (RiskScore, 평가단위 설명)
+    """
+    from ofdf.action.recommend import RISK_ACTIVE_HOUR, levels_change_action
+
+    hour = RISK_ACTIVE_HOUR.get(risk, 13)
+    if levels_change_action(risk, hour=hour):
+        return score(y_true, y_pred), "3등급(정상·주의·경계)"
+    return binary_score(y_true, y_pred), "2등급(정상·위험) — 주의와 경계의 조치가 같음"
 
 
 def confusion(y_true: np.ndarray, y_pred: np.ndarray) -> pd.DataFrame:

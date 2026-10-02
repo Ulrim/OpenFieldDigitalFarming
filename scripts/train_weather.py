@@ -121,6 +121,25 @@ def main() -> int:
             s_logit = metrics.score(y_test, pred_logit)
             s_ai = metrics.score(y_test, pred_ai)
 
+            # 조치 단위 평가 — 주의와 경계가 같은 조치를 내는 유형은 2등급으로 잰다
+            op_rule, unit = metrics.operational_score(y_test, pred_rule, risk)
+            op_ai, _ = metrics.operational_score(y_test, pred_ai, risk)
+
+            # 2등급 유형은 조치 단위로 **직접 학습한** 모델도 함께 잰다.
+            # 3등급 모델의 예측을 접는 것과 다르다 — 맞혀야 할 대상이 다르면
+            # 학습도 그 대상으로 해야 한다.
+            op_direct = None
+            if unit.startswith("2등급"):
+                binary_y = (y >= 1).astype(int)
+                direct = weather_risk.train_one(
+                    X, binary_y, train_idx, valid_idx,
+                    risk=risk, horizon=horizon, params={"num_class": 2},
+                )
+                op_direct = metrics.binary_score(
+                    binary_y[test_idx], direct.predict(X.iloc[test_idx])
+                )
+                weather_risk.save(direct, out_dir / f"model_{key}_binary.txt")
+
             results["단순 기준값 규칙"][tag] = s_rule
             results["로지스틱 회귀(현재값)"][tag] = s_logit
             results["LightGBM(AI)"][tag] = s_ai
@@ -140,6 +159,13 @@ def main() -> int:
                     "규칙 MacroF1": round(s_rule.macro_f1, 3),
                     "로지스틱 MacroF1": round(s_logit.macro_f1, 3),
                     "AI MacroF1": round(s_ai.macro_f1, 3),
+                    "평가단위": unit.split("(")[0],
+                    "규칙 조치단위F1": round(op_rule.macro_f1, 3),
+                    "AI 조치단위F1": round(op_ai.macro_f1, 3),
+                    "전용학습 조치단위F1": round(op_direct.macro_f1, 3) if op_direct else None,
+                    "조치단위 개선(%p)": round(
+                        ((op_direct or op_ai).macro_f1 - op_rule.macro_f1) * 100, 1
+                    ),
                     "AI 놓침방지율": round(s_ai.risk_recall, 3),
                     "규칙 놓침방지율": round(s_rule.risk_recall, 3),
                     "AI 오경보율": round(s_ai.false_alarm_rate, 3),
@@ -154,8 +180,10 @@ def main() -> int:
 
             weather_risk.save(model, out_dir / f"model_{key}.txt")
             explanations[key] = weather_risk.feature_importance(model).to_dict("records")
-            print(f"  [완료] {tag}: AI MacroF1 {s_ai.macro_f1:.3f} "
-                  f"(규칙 {s_rule.macro_f1:.3f}) 놓침방지 {s_ai.risk_recall:.3f}")
+            direct_text = f" / 전용학습 {op_direct.macro_f1:.3f}" if op_direct else ""
+            print(f"  [완료] {tag}: 3등급 F1 {s_ai.macro_f1:.3f} / "
+                  f"조치단위 F1 {op_ai.macro_f1:.3f}{direct_text} "
+                  f"({unit.split('(')[0].strip()}) / 놓침방지 {s_ai.risk_recall:.3f}")
 
     # ---- 복합위험: 구성 위험 예측 조합 ----
     for horizon in horizons:
@@ -171,6 +199,8 @@ def main() -> int:
 
         s_rule = metrics.score(y_test, pred_rule)
         s_ai = metrics.score(y_test, pred_ai)
+        op_rule, unit = metrics.operational_score(y_test, pred_rule, "compound")
+        op_ai, _ = metrics.operational_score(y_test, pred_ai, "compound")
         tag = f"{RISK_LABELS_KO['compound']} {horizon}시간"
         results["단순 기준값 규칙"][tag] = s_rule
         results["LightGBM(AI)"][tag] = s_ai
@@ -184,6 +214,11 @@ def main() -> int:
             "시험 표본": s_ai.n_samples, "위험 표본": s_ai.n_risk,
             "규칙 MacroF1": round(s_rule.macro_f1, 3), "로지스틱 MacroF1": None,
             "AI MacroF1": round(s_ai.macro_f1, 3),
+            "평가단위": unit.split("(")[0],
+            "규칙 조치단위F1": round(op_rule.macro_f1, 3),
+            "AI 조치단위F1": round(op_ai.macro_f1, 3),
+            "전용학습 조치단위F1": None,
+            "조치단위 개선(%p)": round((op_ai.macro_f1 - op_rule.macro_f1) * 100, 1),
             "AI 놓침방지율": round(s_ai.risk_recall, 3), "규칙 놓침방지율": round(s_rule.risk_recall, 3),
             "AI 오경보율": round(s_ai.false_alarm_rate, 3),
             "MacroF1 개선(%p)": round(gain["macro_f1_gain_pp"], 1),

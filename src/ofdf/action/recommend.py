@@ -331,6 +331,42 @@ def _deduplicate(actions: list[Action]) -> list[Action]:
     return list(merged.values())
 
 
+def levels_change_action(risk: str, *, hour: int = 13) -> bool:
+    """이 위험유형에서 주의와 경계가 **다른 조치**를 내는지 본다.
+
+    평가 설계에 쓰인다. 두 등급이 같은 조치를 낸다면 농가가 겪는 일은
+    똑같으므로, 둘을 가려내지 못한 것을 성능 미달로 세는 것은 맞지 않다.
+
+    실제 조치 엔진을 돌려 비교하므로 규칙을 바꾸면 결과도 따라 바뀐다.
+    기준을 두 군데에 적어 두고 어긋나는 일이 없다.
+
+    Parameters
+    ----------
+    hour
+        조치가 시각에 따라 달라지는 유형이 있다(차광은 10~16시만).
+        해당 유형이 실제로 작동하는 시각을 준다.
+    """
+    def commands(level: int) -> set[tuple[str, str]]:
+        decision = decide({risk: level}, SensorState(hour=hour))
+        return {(a.device, a.command) for a in decision.actions}
+
+    return commands(CAUTION) != commands(WARNING)
+
+
+#: 각 위험유형의 조치가 실제로 작동하는 시각(평가 설계 판정용)
+RISK_ACTIVE_HOUR = {
+    "heat_dry": 13, "rain_wet": 14, "disease": 22, "frost": 22, "compound": 22,
+}
+
+
+def action_distinct_levels() -> dict[str, bool]:
+    """위험유형별로 주의/경계가 다른 조치를 내는지 한 번에 본다."""
+    return {
+        risk: levels_change_action(risk, hour=hour)
+        for risk, hour in RISK_ACTIVE_HOUR.items()
+    }
+
+
 def decide(
     risk_levels: dict[str, int],
     sensors: SensorState,
