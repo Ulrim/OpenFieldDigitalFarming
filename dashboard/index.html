@@ -74,6 +74,64 @@ body {
 .mode.advisory { color: var(--warning-ink); }
 .mode.halt { color: var(--critical-ink); }
 
+/* ── 모드 전환 ── */
+.modes { display: inline-flex; border: 1px solid var(--line); border-radius: 99px; overflow: hidden; background: var(--surface-sunk); }
+.modes button {
+  appearance: none; border: 0; background: none; cursor: pointer;
+  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-3);
+  padding: 7px 16px; min-height: 36px;
+}
+.modes button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
+
+/* ── 농가 화면 — 팔 뻗은 거리에서, 장갑 낀 손으로 ── */
+.farm { margin-top: 20px; display: flex; flex-direction: column; gap: 16px; }
+.alarm {
+  background: var(--surface); border: 2px solid var(--line); border-radius: 10px; padding: 20px;
+}
+.alarm.lv1 { border-color: var(--warning); }
+.alarm.lv2 { border-color: var(--critical); }
+.alarm .when { font-size: 14px; font-weight: 600; color: var(--ink-3); margin-bottom: 6px; }
+.alarm .what { font-size: clamp(24px, 6vw, 34px); font-weight: 700; line-height: 1.25; letter-spacing: -0.02em; text-wrap: balance; }
+.alarm .why { margin-top: 12px; font-size: clamp(15px, 3.4vw, 17px); line-height: 1.6; color: var(--ink-2); }
+.alarm .why b { color: var(--ink); font-weight: 600; }
+
+.todo { list-style: none; margin: 18px 0 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.todo li {
+  display: grid; grid-template-columns: 30px 1fr; gap: 12px; align-items: start;
+  background: var(--surface-sunk); border-radius: 8px; padding: 14px 16px; min-height: 56px;
+}
+.todo .no {
+  width: 30px; height: 30px; border-radius: 50%; display: grid; place-items: center;
+  background: var(--surface); border: 1px solid var(--line);
+  font-family: var(--font-num); font-size: 14px; font-weight: 600;
+}
+.todo .act-text { font-size: clamp(16px, 3.6vw, 18px); font-weight: 600; line-height: 1.4; }
+/* span 이라 블록으로 바꿔야 제목 아래로 내려간다 */
+.todo .act-text, .todo .act-note { display: block; }
+.todo .act-note { font-size: 14px; color: var(--ink-3); margin-top: 3px; }
+
+/* 휴대폰에서는 한 줄에 하나씩 — '병 생기기 쉬움' 같은 이름이 잘려 읽히지 않는다 */
+.ok-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+@media (max-width: 480px) { .ok-row { grid-template-columns: 1fr; } }
+.ok {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
+  padding: 13px 15px; display: flex; align-items: center; gap: 9px; min-height: 52px;
+}
+.ok .dot { width: 9px; height: 9px; border-radius: 50%; background: var(--good); flex: none; }
+.ok.lv1 .dot { background: var(--warning); } .ok.lv2 .dot { background: var(--critical); }
+.ok .nm { font-size: 15px; font-weight: 500; min-width: 0; }
+.ok .st { margin-left: auto; font-size: 14px; color: var(--ink-3); white-space: nowrap; }
+
+.now-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; }
+.now {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 13px 15px;
+}
+.now dt { font-size: 14px; color: var(--ink-3); margin: 0 0 4px; }
+.now dd { margin: 0; font-family: var(--font-num); font-size: 24px; font-weight: 500;
+          font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+.now dd span { font-size: 14px; color: var(--ink-3); margin-left: 2px; font-weight: 400; }
+.farm-note { font-size: 14px; color: var(--ink-3); line-height: 1.6; }
+
 section { margin-top: 28px; }
 .head { display: flex; align-items: baseline; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
 .head h2 { font-size: 14px; font-weight: 700; margin: 0; letter-spacing: -0.01em; }
@@ -184,7 +242,26 @@ footer p { margin: 0 0 5px; }
     <span class="clock" id="clock">—</span>
     <span class="spacer"></span>
     <span class="mode auto" id="mode">—</span>
+    <div class="modes" role="group" aria-label="화면 전환">
+      <button type="button" id="btn-farm" aria-pressed="true">농가</button>
+      <button type="button" id="btn-ops" aria-pressed="false">운영자</button>
+    </div>
   </div>
+
+  <div id="farm-view" class="farm">
+    <div class="alarm" id="alarm"></div>
+    <div>
+      <h2 style="font-size:15px;margin:0 0 9px">지금 포장 상태</h2>
+      <dl class="now-row" id="now-row"></dl>
+    </div>
+    <div>
+      <h2 style="font-size:15px;margin:0 0 9px">나머지 항목</h2>
+      <div class="ok-row" id="ok-row"></div>
+    </div>
+    <p class="farm-note" id="farm-note"></p>
+  </div>
+
+  <div id="ops-view" hidden>
 
   <section>
     <div class="head">
@@ -245,11 +322,74 @@ footer p { margin: 0 0 5px; }
     </div>
   </section>
 
+  </div>
+
   <footer id="foot"></footer>
 </div>
 
 <script>
 const LV = ["정상", "주의", "경계"];
+
+/* 농가 화면에 쓰는 말.
+   '초관부 온도', '엽면습윤' 같은 말은 설계 문서의 용어다. 포장에서 보는
+   화면에는 농가가 쓰는 말로 내보낸다. 뜻이 바뀌지 않는 선에서만 바꾼다. */
+const PLAIN_RISK = {
+  heat_dry: "더위·가뭄", rain_wet: "비·물많음",
+  disease: "병 생기기 쉬움", frost: "추위·서리", compound: "겹친 위험",
+};
+const HEADLINE = {
+  frost:    ["", "오늘 밤 서리가 내릴 수 있습니다", "오늘 밤 서리가 내립니다"],
+  heat_dry: ["", "낮에 더위·가뭄 피해가 올 수 있습니다", "낮에 더위·가뭄 피해가 옵니다"],
+  rain_wet: ["", "비로 물이 많아질 수 있습니다", "비로 물이 많아집니다"],
+  disease:  ["", "병이 생기기 쉬운 날씨가 됩니다", "병이 생기기 아주 쉬운 날씨입니다"],
+  compound: ["", "위험이 둘 겹칠 수 있습니다", "위험이 둘 겹칩니다"],
+};
+/* 조치를 농가가 바로 할 수 있는 말로. [할 일, 왜] */
+const PLAIN_ACTION = [
+  [/야간피복.*전개|피복 전개/, ["비닐·부직포 덮기", "해 지면 덮고 해 뜨면 걷습니다"]],
+  [/피복 준비/,               ["해 진 뒤 덮을 준비", "낮에 덮으면 햇빛이 모자랍니다"]],
+  [/야간·새벽 관수 금지/,      ["밤·새벽에 물 주지 않기", "물을 주면 더 얼어붙습니다"]],
+  [/관수 금지|관수 중단|관수 즉시 중단/, ["물 주기 멈추기", "흙에 물이 이미 많습니다"]],
+  [/관수 준비·실행/,          ["물 주기", "흙이 말라 뿌리가 마릅니다"]],
+  [/살수.*금지|살수.*중단|살수.*중지/, ["미세살수 끄기", "잎이 젖으면 병이 번집니다"]],
+  [/차광 한정 전개/,          ["차광막 치기", "가장 더운 때만, 최대 2시간"]],
+  [/차광 회수|차광막·피복.*회수/, ["차광막·피복 걷기", "바람에 찢어지거나 시간이 다 됐습니다"]],
+  [/전개 금지/,               ["차광막·피복 펴지 않기", "바람이 셉니다"]],
+  [/서리 경보/,               ["내일 아침 잎 끝 살펴보기", "언 자리가 있으면 사진을 남겨 주세요"]],
+  [/배수로·고랑 확인|배수 상태 확인/, ["고랑·배수로 터 주기", "물이 고이면 뿌리가 상합니다"]],
+  [/예찰·방제 준비|방제 준비|방제 일정/, ["약 칠 준비", "노균병·잎마름병이 번지기 쉽습니다"]],
+  [/구동 잠금|전원 차단|정지·경보/, ["기계 멈춤 — 현장 확인 필요", "안전장치가 걸렸습니다"]],
+  [/독립운전/,                ["통신 끊김 — 제어기가 혼자 돌고 있음", "복구되면 기록이 올라갑니다"]],
+];
+const PLAIN_NOW = [
+  ["t_air", "기온", "℃"], ["canopy_temp", "잎 높이 온도", "℃"],
+  ["rh", "습도", "%"], ["wind_speed", "바람", "m/s"],
+  ["soil_index", "흙 수분", ""], ["rain", "비", "mm"],
+];
+
+function plainAction(a) {
+  const text = `${a.device} ${a.command}`;
+  for (const [re, [what, why]] of PLAIN_ACTION) if (re.test(text)) return { what, why };
+  return { what: `${a.device} ${a.command}`, why: a.reason };
+}
+
+/* 왜 그런지를 한 문장으로. 숫자는 그대로 쓰되 말은 쉽게. */
+function plainWhy(risk, env, judgement) {
+  const get = (k) => (env.find((e) => e.key === k) || {}).value;
+  const t = get("t_air"), c = get("canopy_temp"), w = get("wind_speed"),
+        h = get("rh"), s = get("soil_index"), wet = get("leaf_wetness");
+  if (risk === "frost")
+    return `잎 높이 온도가 <b>${c}℃</b>까지 내려갔습니다. 바람이 <b>${w}m/s</b>로 거의 없어 새벽에 더 떨어집니다.`;
+  if (risk === "heat_dry")
+    return `기온 <b>${t}℃</b>에 흙 수분이 <b>${s}</b>까지 떨어졌습니다.`;
+  if (risk === "rain_wet")
+    return `흙 수분이 <b>${s}</b>이고 비가 이어집니다. 물이 빠질 자리가 필요합니다.`;
+  if (risk === "disease")
+    return `습도 <b>${h}%</b>에 잎이 ${wet >= 0.5 ? "젖어 있습니다" : "젖기 시작합니다"}. 이 상태가 길어지면 병이 번집니다.`;
+  if (judgement && judgement.evidence.length)
+    return judgement.evidence.map((e) => `${e.label} ${e.value}`).join(", ");
+  return "";
+}
 const $ = (id) => document.getElementById(id);
 const fmt = (iso, withDate) => {
   const d = new Date(iso);
@@ -338,9 +478,80 @@ function render(d) {
     `<p>나주 농업기상 관측자료에 학습된 모델을 돌리고 조치 엔진을 거친 실제 결과다. 꾸며 낸 숫자가 아니다.</p>
      <p>모델 ${d.modelVersion} · 산출 ${fmt(d.generated, true)}</p>`;
 
+  renderFarm(d);
   lastSeries = d.series;
   drawPlot(d.series);
 }
+
+function renderFarm(d) {
+  const levelOf = (c) => Math.max(...Object.values(c.horizons).map((h) => h.level));
+  const ranked = d.cards.slice().sort((a, b) => levelOf(b) - levelOf(a));
+  const top = ranked[0];
+  const level = levelOf(top);
+  const judgement = d.judgements.find((j) => j.risk === top.risk);
+
+  const alarm = $("alarm");
+  alarm.className = "alarm lv" + level;
+
+  if (level === 0) {
+    alarm.innerHTML = `
+      <div class="when">${fmt(d.now, true)} 기준</div>
+      <div class="what">지금 조치할 일이 없습니다</div>
+      <div class="why">앞으로 3시간 안에 올 위험이 없습니다. 평소대로 하시면 됩니다.</div>`;
+  } else {
+    const when = judgement
+      ? `${fmt(judgement.expectedOnset)}쯤`
+      : "앞으로 3시간 안";
+    const todo = d.actions.filter((a) => !a.rejectedBy).map(plainAction);
+    const seen = new Set();
+    const unique = todo.filter((t) => !seen.has(t.what) && seen.add(t.what));
+    alarm.innerHTML = `
+      <div class="when">${when} · ${PLAIN_RISK[top.risk] || top.name}</div>
+      <div class="what">${(HEADLINE[top.risk] || ["", "위험이 예상됩니다", "위험합니다"])[level]}</div>
+      <div class="why">${plainWhy(top.risk, d.environment, judgement)}</div>
+      <ol class="todo">${unique.map((t, i) => `
+        <li><span class="no">${i + 1}</span>
+          <span><span class="act-text">${t.what}</span>
+          <span class="act-note">${t.why}</span></span></li>`).join("")}</ol>`;
+  }
+
+  const value = (k) => (d.environment.find((e) => e.key === k) || {}).value;
+  $("now-row").innerHTML = PLAIN_NOW.map(([k, name, unit]) => {
+    const v = value(k);
+    if (v === undefined || v === null) return "";
+    return `<div class="now"><dt>${name}</dt><dd>${v}${unit ? `<span>${unit}</span>` : ""}</dd></div>`;
+  }).join("");
+
+  $("ok-row").innerHTML = ranked.slice(1).map((c) => {
+    const lv = levelOf(c);
+    return `<div class="ok lv${lv}">
+      <span class="dot"></span>
+      <span class="nm">${PLAIN_RISK[c.risk] || c.name}</span>
+      <span class="st">${LV[lv]}</span></div>`;
+  }).join("");
+
+  $("farm-note").textContent = d.mode === "자동"
+    ? "자동으로 실행됩니다. 직접 하시려면 제어함에서 수동으로 바꾸세요."
+    : `${d.mode} — 농가가 확인해야 실행됩니다.`;
+}
+
+// 농가 / 운영자 화면 전환
+const views = { farm: [$("btn-farm"), $("farm-view")], ops: [$("btn-ops"), $("ops-view")] };
+function showView(which) {
+  for (const [key, [button, panel]] of Object.entries(views)) {
+    const on = key === which;
+    button.setAttribute("aria-pressed", String(on));
+    panel.hidden = !on;
+  }
+  try { localStorage.setItem("ofdf-view", which); } catch { /* 비공개 창 등 */ }
+  if (which === "ops" && lastSeries) drawPlot(lastSeries);
+}
+views.farm[0].addEventListener("click", () => showView("farm"));
+views.ops[0].addEventListener("click", () => showView("ops"));
+try {
+  const saved = localStorage.getItem("ofdf-view");
+  if (saved === "ops") showView("ops");
+} catch { /* 저장소를 못 쓰면 농가 화면으로 둔다 */ }
 
 function drawPlot(s) {
   const svg = $("plot"), tip = $("tip");

@@ -1,0 +1,40 @@
+# 노지 대파 재해위험 판단 엣지 서비스 (라즈베리파이)
+#
+#   sudo cp deploy/ofdf-edge.service /etc/systemd/system/
+#   sudo systemctl enable --now ofdf-edge
+#
+# 단일 스레드 바운드 작업이라 스레드를 늘려도 빨라지지 않는다(1코어 34ms,
+# 4코어 38ms). 전력과 발열만 늘기 때문에 1로 묶는다.
+
+[Unit]
+Description=노지 대파 재해위험 판단·조치추천 엣지 서비스
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ofdf
+WorkingDirectory=/opt/ofdf
+EnvironmentFile=-/etc/default/ofdf
+Environment=PYTHONUNBUFFERED=1
+Environment=OMP_NUM_THREADS=1
+Environment=OPENBLAS_NUM_THREADS=1
+ExecStart=/opt/ofdf/venv/bin/python -m ofdf.cli edge --config configs/weather.yaml
+
+# 통신이 끊겨도 혼자 돌아야 한다. 죽으면 즉시 되살린다.
+Restart=always
+RestartSec=5
+# 메모리 실측 181MB. 2GB 모델에서도 OS 를 밀어내지 않도록 상한을 둔다.
+MemoryMax=512M
+# 과열 시 다른 작업에 양보한다
+Nice=5
+
+# 쓰기는 작업 디렉터리와 로그에만 허용한다
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/ofdf/artifacts /opt/ofdf/logs /opt/ofdf/dashboard
+
+[Install]
+WantedBy=multi-user.target

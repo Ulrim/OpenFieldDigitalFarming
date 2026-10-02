@@ -185,7 +185,16 @@ def add_derived(df: pd.DataFrame, et0_col: str | None = "et0") -> pd.DataFrame:
     ``df`` 는 지점 하나의 시간순 데이터여야 한다(물수지가 누적 계산이므로).
     """
     out = df.copy()
-    out["solar_w"] = solar_w_per_m2(out["solar_mj"])
+
+    # 일사 단위가 경로마다 다르다. 농업기상 관측자료는 시간 일사량(MJ/m^2)을
+    # 주고, 현장 일사계는 일사강도(W/m^2)를 바로 준다. 둘 다 받는다.
+    if "solar_w" not in out.columns or out["solar_w"].isna().all():
+        if "solar_mj" in out.columns:
+            out["solar_w"] = solar_w_per_m2(out["solar_mj"])
+        elif "solar" in out.columns:
+            out["solar_w"] = out["solar"]
+        else:
+            out["solar_w"] = np.nan
     out["dew_point"] = dew_point(out["t_air"], out["rh"])
     out["vpd"] = vapour_pressure_deficit(out["t_air"], out["rh"])
     out["leaf_wetness"] = leaf_wetness(
