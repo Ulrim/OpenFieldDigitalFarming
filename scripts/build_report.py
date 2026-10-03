@@ -49,7 +49,11 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--artifacts", default="artifacts", help="산출물 루트")
     p.add_argument("--out", default="reports")
-    p.add_argument("--weather", default="weather", help="기상 모델 산출물 하위 경로")
+    # 제출물은 '조치단위' 평가 결과를 쓴다(README 3.13). 그 열은 운영
+    # 평가단위로 다시 돌린 산출물에만 있으므로 기본값이 그쪽을 가리켜야
+    # 한다. 예전 기본값('weather')은 열이 없어 KeyError 로 끝났고, 왜
+    # 실패했는지가 드러나지 않았다.
+    p.add_argument("--weather", default="weather_or", help="기상 모델 산출물 하위 경로")
     p.add_argument("--project", default="노지작물 재해위험 판단·조치추천 AI 현장제어 시제품 개발")
     p.add_argument("--org", default="주식회사 컬리버")
     p.add_argument("--site", default="전라남도 나주시 남평읍 대교리 (노지 대파)")
@@ -152,6 +156,15 @@ def performance_report(args, data: dict) -> str:
             "AI 놓침방지율", "규칙 놓침방지율", "AI 오경보율", "사전알림(분)",
         ] if c in weather.columns]
         lines += [table(weather, cols), ""]
+
+        if "AI 조치단위F1" not in weather.columns:
+            raise SystemExit(
+                "performance.csv 에 '조치단위' 열이 없다. 제출물은 운영 평가단위"
+                " 결과를 쓴다(README 3.13).\n"
+                "  --weather 를 조치단위로 평가한 산출물 경로로 지정하거나,"
+                " scripts/train_weather.py 를 그 설정으로 다시 돌려야 한다.\n"
+                f"  지금 열: {list(weather.columns)}"
+            )
 
         def best(row) -> float:
             direct = row.get("전용학습 조치단위F1")
