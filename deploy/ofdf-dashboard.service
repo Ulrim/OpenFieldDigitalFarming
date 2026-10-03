@@ -1,0 +1,35 @@
+# 현장 화면 제공 (제어함 터치패널 + 농가 휴대폰)
+#
+#   sudo cp deploy/ofdf-dashboard.service /etc/systemd/system/
+#   sudo systemctl enable --now ofdf-dashboard
+#
+# 엣지 서비스가 dashboard/data.json 을 원자적으로 갈아 끼우고, 화면은 그것을
+# 30초마다 다시 읽는다. 둘을 분리해 둔 이유는 판단이 멈춰도 화면은 살아서
+# '멈췄다'고 알려야 하기 때문이다. 한 프로세스였다면 같이 죽는다.
+
+[Unit]
+Description=노지 대파 재해위험 현장 화면
+After=network.target
+
+[Service]
+Type=simple
+User=ofdf
+WorkingDirectory=/opt/ofdf
+# 0.0.0.0 으로 열어야 농가 휴대폰이 같은 공유기에서 들어온다.
+# 포장 내부망 전용이다. 공인 IP 로 포트를 열지 않는다.
+ExecStart=/opt/ofdf/venv/bin/python -m http.server 8080 \
+          --bind 0.0.0.0 --directory /opt/ofdf/dashboard
+Restart=always
+RestartSec=5
+
+# 정적 파일만 내보낸다. 쓰기 권한이 필요 없다.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+RestrictAddressFamilies=AF_INET AF_INET6
+MemoryMax=128M
+
+[Install]
+WantedBy=multi-user.target

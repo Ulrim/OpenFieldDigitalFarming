@@ -116,12 +116,48 @@ def test_missing_artifacts_do_not_crash(tmp_path):
 # 화면
 # --------------------------------------------------------------------------
 
-def test_dashboard_page_follows_artifact_contract():
+def test_dashboard_page_is_a_standalone_document():
+    """화면은 라즈베리파이가 그대로 내보내는 파일이다.
+
+    한때 이 파일은 게시용 미리보기를 기준으로 삼아 문서 뼈대를 일부러
+    빼 두었다. 게시 경로는 뼈대를 자동으로 감싸 주기 때문이다. 그런데
+    현장 제어기는 같은 파일을 ``http.server`` 로 그냥 내보내고, 거기에는
+    감싸 주는 주체가 없다. 그 결과
+
+    * ``<meta charset>`` 이 없어 한글이 전부 깨지고,
+    * ``<!doctype>`` 이 없어 쿼크스 모드로 배치가 틀어지고,
+    * ``<meta name=viewport>`` 가 없어 휴대폰이 축소해서 띄운다.
+
+    제품은 제어기 쪽이다. 미리보기가 아니라 포장에서 도는 화면을 기준으로
+    맞춘다.
+    """
     page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-    for tag in ("<!DOCTYPE", "<html", "<head>", "<body"):
-        assert tag not in page, f"{tag} 는 게시 시 자동으로 감싸진다"
+    assert page.lstrip().lower().startswith("<!doctype html>")
+    assert 'lang="ko"' in page
+    assert '<meta charset="utf-8">' in page
+    assert '<meta name="viewport"' in page and "width=device-width" in page
     assert "<title>" in page
-    # 테마 3상태: 기본 :root + 매체질의 + data-theme
+
+
+def test_dashboard_page_survives_without_network():
+    """통신이 끊긴 포장에서 원격 글꼴이 화면을 붙잡으면 안 된다."""
+    page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    for line in page.splitlines():
+        if "fonts.googleapis.com" in line and "<link" in line:
+            # 비차단(media=print → onload 교체)이거나 noscript 안이어야 한다
+            assert 'media="print"' in line or "<noscript>" in line, line
+
+
+def test_dashboard_page_refreshes_itself():
+    """벽패널은 아무도 새로고침하지 않는다. 1회 fetch 로 되돌리면 안 된다."""
+    page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    assert "setInterval(load" in page, "주기 갱신이 사라졌다"
+    assert "STALE_MS" in page, "오래된 자료 경고가 사라졌다"
+    assert 'id="stale"' in page
+
+
+def test_dashboard_page_keeps_three_state_theming():
+    page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
     assert "prefers-color-scheme: dark" in page
     assert ':root[data-theme="dark"]' in page
     assert ':root:not([data-theme="light"])' in page

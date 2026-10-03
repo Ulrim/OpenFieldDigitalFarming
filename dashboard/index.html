@@ -1,5 +1,20 @@
+<!doctype html>
+<html lang="ko">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>노지 대파 재해위험 관제</title>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><text y='14' font-size='14'>◉</text></svg>">
+
+<!-- 글꼴은 있으면 쓰고 없으면 넘어간다.
+     제어기는 통신이 끊긴 채 72시간을 돌아야 한다. 원격 글꼴을 렌더링
+     차단으로 걸어 두면 인터넷이 없는 포장에서 화면이 뜨기까지 네트워크
+     시간초과만큼 멈춰 있는다. 글꼴 하나 때문에 위험 알림이 늦는다.
+     그래서 비차단으로 받고, 못 받으면 시스템 글꼴로 그대로 간다.
+     라즈베리파이에는 `sudo apt install fonts-noto-cjk` 로 한글을 깔아 둔다. -->
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" media="print" onload="this.media='all'"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap">
+<noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap"></noscript>
 <style>
 /* 레이아웃: 제어반 계기판 — 고정 상태바 / 위험카드 격자 / 판단·조치 2열 / 24시간 추이 / 제어 이력 */
 :root {
@@ -22,7 +37,8 @@
   --warning-ink:  #7a5200;
   --critical-ink: #a32a2a;
 
-  --font-ui:  "IBM Plex Sans KR", system-ui, -apple-system, "Malgun Gothic", sans-serif;
+  --font-ui:  "IBM Plex Sans KR", system-ui, -apple-system, "Noto Sans CJK KR",
+              "Noto Sans KR", "Malgun Gothic", "Apple SD Gothic Neo", sans-serif;
   --font-num: "IBM Plex Mono", ui-monospace, "SF Mono", Menlo, monospace;
 
   --r: 6px;
@@ -76,10 +92,12 @@ body {
 
 /* ── 모드 전환 ── */
 .modes { display: inline-flex; border: 1px solid var(--line); border-radius: 99px; overflow: hidden; background: var(--surface-sunk); }
+/* 제어함 패널은 장갑 낀 손으로 누른다. 44px 는 맨손 기준 최솟값이라
+   현장 기준으로 48px 를 쓴다. 휴대폰에서는 더 키운다. */
 .modes button {
   appearance: none; border: 0; background: none; cursor: pointer;
-  font: inherit; font-size: 13px; font-weight: 600; color: var(--ink-3);
-  padding: 7px 16px; min-height: 36px;
+  font: inherit; font-size: 14px; font-weight: 600; color: var(--ink-3);
+  padding: 7px 18px; min-height: 48px; min-width: 64px;
 }
 .modes button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px rgb(0 0 0 / .12); }
 
@@ -112,7 +130,12 @@ body {
 
 /* 휴대폰에서는 한 줄에 하나씩 — '병 생기기 쉬움' 같은 이름이 잘려 읽히지 않는다 */
 .ok-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
-@media (max-width: 480px) { .ok-row { grid-template-columns: 1fr; } }
+@media (max-width: 480px) {
+  .ok-row { grid-template-columns: 1fr; }
+  /* 휴대폰은 걸어다니며 한 손으로 누른다. 전환 버튼을 더 키우고 폭을 나눠 쓴다. */
+  .modes { width: 100%; }
+  .modes button { flex: 1; min-height: 56px; font-size: 15px; }
+}
 .ok {
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
   padding: 13px 15px; display: flex; align-items: center; gap: 9px; min-height: 52px;
@@ -232,6 +255,23 @@ td.t, td.l { font-family: var(--font-num); font-variant-numeric: tabular-nums; c
 footer { margin-top: 30px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 12px; color: var(--ink-3); }
 footer p { margin: 0 0 5px; }
 :focus-visible { outline: 2px solid var(--series-air); outline-offset: 2px; }
+
+/* 화면이 멈췄을 때 띄우는 띠. 벽패널은 아무도 새로고침하지 않으므로,
+   낡은 값을 멀쩡한 값처럼 보여주는 것이 가장 위험하다. 색만으로 알리지
+   않고 글로도 적는다. */
+#stale {
+  display: none; align-items: center; gap: 10px;
+  padding: 14px 16px; margin-bottom: var(--gap);
+  border: 2px solid var(--critical); border-radius: 10px;
+  background: var(--surface);
+  font-size: clamp(15px, 3.2vw, 17px); font-weight: 600; color: var(--critical-ink);
+}
+#stale[data-shown] { display: flex; }
+#stale .dot {
+  flex: none; width: 12px; height: 12px; border-radius: 50%;
+  background: var(--critical);
+}
+#stale .detail { font-weight: 400; color: var(--ink-2); font-size: 14px; }
 @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
 </style>
 
@@ -246,6 +286,11 @@ footer p { margin: 0 0 5px; }
       <button type="button" id="btn-farm" aria-pressed="true">농가</button>
       <button type="button" id="btn-ops" aria-pressed="false">운영자</button>
     </div>
+  </div>
+
+  <div id="stale" role="alert" aria-live="assertive">
+    <span class="dot" aria-hidden="true"></span>
+    <span><span id="stale-msg"></span><br><span class="detail" id="stale-detail"></span></span>
   </div>
 
   <div id="farm-view" class="farm">
@@ -638,11 +683,65 @@ addEventListener("resize", () => {
   redrawTimer = setTimeout(() => lastSeries && drawPlot(lastSeries), 180);
 });
 
-fetch("data.json")
-  .then((r) => r.json())
-  .then(render)
-  .catch(() => {
-    $("site").textContent = "데이터를 불러오지 못했습니다";
-    $("foot").innerHTML = "<p>data.json 을 함께 배포해야 화면이 채워진다.</p>";
-  });
+/* 자동 갱신.
+   제어함 벽패널은 24시간 켜져 있고 아무도 새로고침하지 않는다. 1회만
+   읽으면 부팅 때 값에서 영원히 멈춘다. 서리가 내리는 밤에 사흘 전
+   '정상' 을 띄우는 것이 이 화면이 할 수 있는 가장 나쁜 일이다. */
+const REFRESH_MS = 30 * 1000;        // 파일 하나 읽기라 부담이 없다
+const STALE_MS = 15 * 60 * 1000;     // 판단 주기 5분 × 3회 연속 놓침
+
+let lastGood = null;
+
+function freshness(data, error) {
+  const bar = $("stale");
+  const age = data && data.generated
+    ? Date.now() - new Date(data.generated).getTime() : Infinity;
+
+  if (!error && age <= STALE_MS) {
+    bar.removeAttribute("data-shown");
+    return;
+  }
+
+  let msg, detail;
+  if (!data) {
+    msg = "화면에 띄울 자료가 없습니다";
+    detail = "제어기가 아직 판단을 기록하지 않았거나 data.json 을 읽지 못했습니다.";
+  } else if (error) {
+    msg = "제어기와 연결이 끊겼습니다";
+    detail = `아래 값은 ${fmt(data.generated, true)} 기준입니다. 지금 상태가 아닙니다.`;
+  } else {
+    const mins = Math.floor(age / 60000);
+    msg = "화면이 멈췄습니다 — 제어기를 확인해 주세요";
+    detail = `마지막 판단이 ${mins}분 전입니다(${fmt(data.generated, true)}). `
+           + "아래 값은 지금 상태가 아닙니다.";
+  }
+  $("stale-msg").textContent = msg;
+  $("stale-detail").textContent = detail;
+  bar.setAttribute("data-shown", "");
+}
+
+function load() {
+  return fetch("data.json", { cache: "no-store" })
+    .then((r) => { if (!r.ok) throw new Error(r.status); return r.json(); })
+    .then((d) => {
+      lastGood = d;
+      render(d);
+      freshness(d, null);
+    })
+    .catch((err) => {
+      // 마지막으로 읽은 값을 지우지 않는다. 빈 화면보다 '낡았다'고 적힌
+      // 화면이 낫다. 지우면 농가가 무엇을 봐야 할지 알 수 없다.
+      if (!lastGood) {
+        $("site").textContent = "데이터를 불러오지 못했습니다";
+        $("foot").innerHTML = "<p>data.json 을 함께 배포해야 화면이 채워진다.</p>";
+      }
+      freshness(lastGood, err);
+    });
+}
+
+load();
+setInterval(load, REFRESH_MS);
+
+// 절전에서 깨어나거나 농가가 화면을 다시 켰을 때 즉시 맞춘다.
+addEventListener("visibilitychange", () => { if (!document.hidden) load(); });
 </script>
