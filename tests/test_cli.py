@@ -140,3 +140,57 @@ def test_add_derived_accepts_both_solar_units():
 
     assert station["solar_w"].iloc[0] == pytest.approx(277.8, rel=1e-3)
     assert field["solar_w"].iloc[0] == pytest.approx(277.8, rel=1e-3)
+
+
+def test_measured_canopy_temp_is_not_overwritten_by_proxy():
+    """초관부 온도센서를 달았으면 추정값이 아니라 실측으로 판단해야 한다."""
+    index = pd.date_range("2025-10-01", periods=3, freq="h")
+    frame = pd.DataFrame(
+        {
+            "t_air": 2.0, "rh": 90.0, "rain": 0.0,
+            "wind_speed": 0.5, "solar": 0.0, "et0": 0.1,
+            # 복사냉각으로 2m 기온보다 훨씬 낮게 측정된 값
+            "canopy_temp": [-2.5, -3.0, np.nan],
+        },
+        index=index,
+    )
+    out = add_derived(frame)
+
+    assert out["canopy_temp"].iloc[0] == pytest.approx(-2.5)
+    assert out["canopy_temp"].iloc[1] == pytest.approx(-3.0)
+    assert list(out["canopy_temp_source"]) == ["measured", "measured", "proxy"]
+    # 결측 시각은 대리지표로 메워서 판단이 비지 않아야 한다.
+    assert not pd.isna(out["canopy_temp"].iloc[2])
+
+
+def test_proxy_is_used_when_sensor_column_is_absent_or_empty():
+    """센서가 없거나 통째로 결측이면 종전처럼 대리지표로 돌아간다."""
+    index = pd.date_range("2025-10-01", periods=2, freq="h")
+    base = {
+        "t_air": 2.0, "rh": 90.0, "rain": 0.0,
+        "wind_speed": 0.5, "solar": 0.0, "et0": 0.1,
+    }
+    absent = add_derived(pd.DataFrame(base, index=index))
+    empty = add_derived(pd.DataFrame({**base, "canopy_temp": np.nan}, index=index))
+
+    assert set(absent["canopy_temp_source"]) == {"proxy"}
+    assert set(empty["canopy_temp_source"]) == {"proxy"}
+    assert absent["canopy_temp"].notna().all()
+    assert absent["canopy_temp"].equals(empty["canopy_temp"])
+
+
+def test_source_columns_do_not_leak_into_model_features():
+    """출처 컬럼은 기록용이다. 모델 입력으로 새면 안 된다."""
+    from ofdf.features.weather import build_features
+
+    index = pd.date_range("2025-10-01", periods=4, freq="h")
+    frame = pd.DataFrame(
+        {
+            "t_air": 2.0, "rh": 90.0, "rain": 0.0,
+            "wind_speed": 0.5, "solar": 0.0, "et0": 0.1,
+            "canopy_temp": -2.0, "leaf_wetness": 1.0,
+        },
+        index=index,
+    )
+    features = build_features(add_derived(frame))
+    assert not [c for c in features.columns if c.endswith("_source")]

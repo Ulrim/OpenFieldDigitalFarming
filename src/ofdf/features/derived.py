@@ -5,8 +5,10 @@
 토양수분은 나주 농업기상 관측지점에서도 2025년부터만 기록된다.
 
 여기서는 공공 관측값으로 계산 가능한 **대리지표(proxy)** 를 만든다.
-현장 센서가 붙으면 같은 이름의 실측 컬럼으로 교체하면 되도록
-컬럼 이름을 맞춰 두었다(``canopy_temp``, ``leaf_wetness``, ``soil_index``).
+현장 센서가 붙으면 같은 이름의 실측 컬럼(``canopy_temp``, ``leaf_wetness``,
+``soil_index``)이 들어오고, 그 시각은 대리지표 대신 실측을 쓴다. 센서가
+결측인 시각만 대리지표로 메우므로 통신이 끊겨도 판단이 비지 않는다.
+어느 쪽을 썼는지는 ``{이름}_source`` 컬럼에 시각별로 남는다.
 """
 
 from __future__ import annotations
@@ -179,6 +181,32 @@ def soil_water_index(
     return pd.Series(storage / capacity * 100.0, index=rain.index)
 
 
+def _prefer_measured(out: pd.DataFrame, col: str, proxy: pd.Series) -> pd.Series:
+    """실측 컬럼이 있으면 그것을 쓰고, 빈 구간만 대리지표로 메운다.
+
+    실증포장 센서가 붙기 전까지 ``canopy_temp`` 같은 값은 공공 관측값으로
+    계산한 대리지표였다. 센서가 붙은 뒤에도 대리지표로 덮어써 버리면
+    장비를 사 놓고 추정값으로 판단하는 셈이 되므로, 실측이 있는 시각은
+    실측을 쓰고 결측 시각만 대리지표로 메운다.
+
+    실측인지 추정인지는 성능평가에서 구분해야 하므로 ``{col}_source``
+    컬럼에 시각별로 ``measured`` / ``proxy`` 를 남긴다. 이 컬럼은
+    :func:`ofdf.features.weather.build_features` 의 변수 목록에 없으므로
+    모델 입력으로 새지 않는다.
+    """
+    if col not in out.columns:
+        out[f"{col}_source"] = "proxy"
+        return proxy
+
+    measured = pd.to_numeric(out[col], errors="coerce")
+    if not measured.notna().any():
+        out[f"{col}_source"] = "proxy"
+        return proxy
+
+    out[f"{col}_source"] = np.where(measured.notna(), "measured", "proxy")
+    return measured.where(measured.notna(), proxy)
+
+
 def add_derived(df: pd.DataFrame, et0_col: str | None = "et0") -> pd.DataFrame:
     """관측 데이터프레임에 파생변수 컬럼을 붙여 돌려준다.
 
@@ -197,16 +225,24 @@ def add_derived(df: pd.DataFrame, et0_col: str | None = "et0") -> pd.DataFrame:
             out["solar_w"] = np.nan
     out["dew_point"] = dew_point(out["t_air"], out["rh"])
     out["vpd"] = vapour_pressure_deficit(out["t_air"], out["rh"])
-    out["leaf_wetness"] = leaf_wetness(
-        out["t_air"], out["rh"], out["rain"], out["solar_w"]
+    out["leaf_wetness"] = _prefer_measured(
+        out,
+        "leaf_wetness",
+        leaf_wetness(out["t_air"], out["rh"], out["rain"], out["solar_w"]),
     )
-    out["canopy_temp"] = canopy_temperature(
-        out["t_air"],
-        out["rh"],
-        out.get("wind_speed", pd.Series(np.nan, index=out.index)),
-        out["solar_w"],
-        out.get("cloud_cover"),
+    out["canopy_temp"] = _prefer_measured(
+        out,
+        "canopy_temp",
+        canopy_temperature(
+            out["t_air"],
+            out["rh"],
+            out.get("wind_speed", pd.Series(np.nan, index=out.index)),
+            out["solar_w"],
+            out.get("cloud_cover"),
+        ),
     )
     if et0_col and et0_col in out.columns:
-        out["soil_index"] = soil_water_index(out["rain"], out[et0_col])
+        out["soil_index"] = _prefer_measured(
+            out, "soil_index", soil_water_index(out["rain"], out[et0_col])
+        )
     return out
