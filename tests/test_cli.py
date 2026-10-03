@@ -137,9 +137,26 @@ def test_add_derived_accepts_both_solar_units():
 
     station = add_derived(pd.DataFrame({**base, "solar_mj": 1.0}, index=index))
     field = add_derived(pd.DataFrame({**base, "solar": 277.8}, index=index))
+    # WS90 은 일사계가 아니라 조도계라 lux 로 들어온다.
+    lux = add_derived(pd.DataFrame({**base, "illuminance": 35197.0}, index=index))
 
     assert station["solar_w"].iloc[0] == pytest.approx(277.8, rel=1e-3)
     assert field["solar_w"].iloc[0] == pytest.approx(277.8, rel=1e-3)
+    assert lux["solar_w"].iloc[0] == pytest.approx(277.8, rel=1e-3)
+
+
+def test_measured_irradiance_wins_over_lux_conversion():
+    """lux 환산은 근사다. 일사계 실측이 있으면 그쪽을 써야 한다."""
+    index = pd.date_range("2025-10-01", periods=2, freq="h")
+    frame = pd.DataFrame(
+        {
+            "t_air": 15.0, "rh": 70.0, "rain": 0.0, "wind_speed": 1.0, "et0": 0.1,
+            "solar": 500.0,
+            "illuminance": 35197.0,   # 환산하면 277.8 W/m^2 — 쓰이면 안 된다
+        },
+        index=index,
+    )
+    assert add_derived(frame)["solar_w"].iloc[0] == pytest.approx(500.0)
 
 
 def test_measured_canopy_temp_is_not_overwritten_by_proxy():

@@ -19,6 +19,17 @@ import pandas as pd
 #: 일사량 단위 환산 — 1 MJ/m^2 를 1시간에 받으면 평균 277.8 W/m^2
 MJ_PER_HOUR_TO_W = 1e6 / 3600.0
 
+#: 조도(lux) -> 일사강도(W/m^2) 환산 계수.
+#:
+#: WS90 같은 Fine Offset / Ecowitt 센서는 일사계가 아니라 조도계를 달고
+#: 있어서, rtl_433 으로 직접 받으면 ``light_lux`` 만 나온다(에코윗 콘솔이
+#: 보여주는 W/m^2 도 실은 콘솔이 이 계수로 나눈 값이다).
+#:
+#: 가시광 조도와 전파장 일사는 스펙트럼이 달라서 이 환산은 근사다. 맑은
+#: 날 기준으로 맞춰진 값이라 흐린 날·일출일몰 무렵에는 오차가 커진다.
+#: 그래서 환산값은 일사계 실측이 없을 때만 쓰는 대체 경로다.
+LUX_PER_W_M2 = 126.7
+
 
 def dew_point(t_air: pd.Series, rh: pd.Series) -> pd.Series:
     """Magnus-Tetens 식으로 이슬점온도(℃)를 구한다."""
@@ -215,12 +226,16 @@ def add_derived(df: pd.DataFrame, et0_col: str | None = "et0") -> pd.DataFrame:
     out = df.copy()
 
     # 일사 단위가 경로마다 다르다. 농업기상 관측자료는 시간 일사량(MJ/m^2)을
-    # 주고, 현장 일사계는 일사강도(W/m^2)를 바로 준다. 둘 다 받는다.
+    # 주고, 현장 일사계는 일사강도(W/m^2)를 바로 준다. WS90 처럼 조도계만
+    # 달린 센서는 lux 로 준다. 셋 다 받되 정확한 순서대로 고른다.
     if "solar_w" not in out.columns or out["solar_w"].isna().all():
         if "solar_mj" in out.columns:
             out["solar_w"] = solar_w_per_m2(out["solar_mj"])
         elif "solar" in out.columns:
             out["solar_w"] = out["solar"]
+        elif "illuminance" in out.columns:
+            # 조도계만 있는 경우(WS90 등). 근사 환산이라 마지막 순위다.
+            out["solar_w"] = out["illuminance"] / LUX_PER_W_M2
         else:
             out["solar_w"] = np.nan
     out["dew_point"] = dew_point(out["t_air"], out["rh"])
