@@ -208,3 +208,38 @@ def test_artifact_page_build_strips_only_the_document_shell():
 
     # 떼어낸 줄 말고는 손대지 않았는지 — 길이가 크게 줄면 뭔가 더 깎인 것이다
     assert len(built) > len(source) * 0.95
+
+
+def test_weather_artifacts_resolve_to_operational_results(artifacts, tmp_path):
+    """조치단위 결과가 있으면 그쪽을 쓰고, 없으면 있는 것을 쓴다.
+
+    제출물은 조치단위 평가를 싣는다(README 3.13). 그 열은 운영 평가단위로
+    다시 돌린 산출물에만 있다. 경로 이름을 기본값으로 박아 두면 다른 쪽을
+    쓰는 사람에게 **조용히 빈 보고서**가 나가는데, 제출 문서에서는 그게
+    예외로 끝나는 것보다 나쁘다.
+    """
+    sys.path.insert(0, str(ROOT / "scripts"))
+    from build_report import resolve_weather_dir
+
+    # 픽스처에는 weather 만 있다 — 그것을 찾아내야 한다
+    assert resolve_weather_dir(artifacts, None).name == "weather"
+
+    # 둘 다 있으면 조치단위 쪽이 이긴다
+    (artifacts / "weather_or").mkdir()
+    (artifacts / "weather_or" / "performance.csv").write_text("위험유형\n", encoding="utf-8")
+    assert resolve_weather_dir(artifacts, None).name == "weather_or"
+
+    # 명시 지정은 언제나 이긴다
+    assert resolve_weather_dir(artifacts, "weather").name == "weather"
+
+
+def test_report_refuses_results_without_action_unit_columns(tmp_path):
+    """조치단위 열이 없으면 무엇이 없는지 말하고 끝낸다."""
+    stale = tmp_path / "weather"
+    stale.mkdir()
+    pd.DataFrame([{"위험유형": "저온·서리", "시계(h)": 3, "AI MacroF1": 0.93}]).to_csv(
+        stale / "performance.csv", index=False, encoding="utf-8-sig")
+
+    result = build(tmp_path, tmp_path / "reports")
+    assert result.returncode != 0
+    assert "조치단위" in result.stderr and "README 3.13" in result.stderr

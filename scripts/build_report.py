@@ -49,11 +49,9 @@ def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--artifacts", default="artifacts", help="산출물 루트")
     p.add_argument("--out", default="reports")
-    # 제출물은 '조치단위' 평가 결과를 쓴다(README 3.13). 그 열은 운영
-    # 평가단위로 다시 돌린 산출물에만 있으므로 기본값이 그쪽을 가리켜야
-    # 한다. 예전 기본값('weather')은 열이 없어 KeyError 로 끝났고, 왜
-    # 실패했는지가 드러나지 않았다.
-    p.add_argument("--weather", default="weather_or", help="기상 모델 산출물 하위 경로")
+    p.add_argument("--weather", default=None,
+                   help="기상 모델 산출물 하위 경로 "
+                        "(기본: weather_or 가 있으면 그것, 없으면 weather)")
     p.add_argument("--project", default="노지작물 재해위험 판단·조치추천 AI 현장제어 시제품 개발")
     p.add_argument("--org", default="주식회사 컬리버")
     p.add_argument("--site", default="전라남도 나주시 남평읍 대교리 (노지 대파)")
@@ -434,15 +432,33 @@ def model_card(args, data: dict) -> str:
     return "\n".join(lines)
 
 
+def resolve_weather_dir(root: Path, given: str | None) -> Path:
+    """기상 모델 산출물 경로를 정한다.
+
+    제출물은 '조치단위' 평가 결과를 쓴다(README 3.13). 그 열은 운영
+    평가단위로 다시 돌린 산출물(``weather_or``)에만 있다. 이름을 기본값으로
+    박아 두면 다른 쪽을 쓰는 사람에게 조용히 빈 보고서가 나간다 — 제출
+    문서에서는 그게 KeyError 보다 나쁘다. 그래서 둘 다 찾아보고, 조치단위
+    결과가 있으면 그쪽을 먼저 쓴다. 명시 지정은 언제나 이긴다.
+    """
+    if given:
+        return root / given
+    for name in ("weather_or", "weather"):
+        if (root / name / "performance.csv").exists():
+            return root / name
+    return root / "weather"
+
+
 def main() -> int:
     args = parse_args()
     root = Path(args.artifacts)
     out_dir = Path(args.out)
     out_dir.mkdir(parents=True, exist_ok=True)
 
+    weather_dir = resolve_weather_dir(root, args.weather)
     data = {
-        "weather": read_csv(root / args.weather / "performance.csv"),
-        "importance": read_json(root / args.weather / "feature_importance.json"),
+        "weather": read_csv(weather_dir / "performance.csv"),
+        "importance": read_json(weather_dir / "feature_importance.json"),
         "scenarios": read_csv(root / "scenarios" / "scenario_results.csv"),
         "timing": read_json(root / "benchmark" / "benchmark.json"),
         "vision": read_json(root / "vision" / "performance.json"),
