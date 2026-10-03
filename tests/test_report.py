@@ -172,3 +172,39 @@ def test_dashboard_data_has_screen_fields():
             assert view["level"] in (0, 1, 2)
             assert 0.0 <= view["confidence"] <= 1.0
     assert len(data["series"]["time"]) == len(data["series"]["t_air"])
+
+
+def test_artifact_page_build_strips_only_the_document_shell():
+    """게시용 미리보기는 현장 화면에서 만들어 낸다.
+
+    두 경로의 요구가 반대다. 제어기는 완전한 문서여야 하고, 게시 경로는
+    뼈대를 자기가 감싸므로 들어 있으면 중첩된다. 원본을 제어기 쪽으로 두고
+    게시용을 만들어 내는데, 그 변환이 내용까지 깎아 내면 안 된다.
+    """
+    import subprocess
+    import sys
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as tmp:
+        out = Path(tmp) / "page.html"
+        r = subprocess.run(
+            [sys.executable, str(ROOT / "scripts" / "build_artifact_page.py"),
+             "--out", str(out)],
+            capture_output=True, text=True,
+        )
+        assert r.returncode == 0, r.stderr
+        built = out.read_text(encoding="utf-8")
+
+    source = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+
+    # 게시 경로가 넣어 주는 것은 빠져야 한다
+    for tag in ("<!doctype", "<html", "<head>", "<body", "<meta charset"):
+        assert tag not in built.lower(), tag
+
+    # 화면을 이루는 것은 그대로 남아야 한다
+    for keep in ("<title>", "<style>", "<script>", 'id="stale"',
+                 "setInterval(load", "STALE_MS", "prefers-color-scheme: dark"):
+        assert keep in built, keep
+
+    # 떼어낸 줄 말고는 손대지 않았는지 — 길이가 크게 줄면 뭔가 더 깎인 것이다
+    assert len(built) > len(source) * 0.95
