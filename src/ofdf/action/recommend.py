@@ -245,6 +245,23 @@ def field_rule_actions(sensors: SensorState) -> list[Action]:
 #: 장치 묶음 — 같은 구동부를 공유하거나 한 명령이 함께 거는 장치들.
 #: 차광막과 야간피복은 같은 권취 구동부를 쓰므로(차광 스크린 겸용 피복)
 #: 강풍 회수 명령 하나가 둘 다 건다.
+#: 조치엔진이 명령하는 장치 전부.
+#:
+#: 판단은 하드웨어 사정과 무관하게 같아야 한다. 차광막이 아직 없다고 해서
+#: '지금 차광이 필요하다'는 판단이 달라지지는 않는다. 그래서 엔진의 기본은
+#: 전체 장치이고, 무엇이 실제로 달렸는지는 **현장 설정**이 말한다.
+ALL_DEVICES: frozenset[str] = frozenset({
+    "관수밸브", "살수", "차광막", "야간피복", "차광막·피복",
+    "전 구동부", "해당 구동부", "제어기", "알림",
+})
+
+#: 알림·기록처럼 구동부가 없어도 언제나 되는 것. 설치 장치를 좁게 잡아도
+#: 이들은 실행으로 남아야 농가가 통보를 받는다.
+ALWAYS_AVAILABLE: frozenset[str] = frozenset({"알림", "제어기"})
+
+#: 구동부가 없어 손으로 해야 하는 조치에 붙는 사유.
+NO_ACTUATOR_NOTE = "구동부 미설치 — 농가가 직접"
+
 DEVICE_GROUPS = {
     "차광막": {"차광막", "차광막·피복", "야간피복", "전 구동부"},
     "야간피복": {"야간피복", "차광막·피복", "차광막", "전 구동부"},
@@ -374,6 +391,7 @@ def decide(
     confidence: dict[str, float] | None = None,
     compound_reasons: list[str] | None = None,
     confidence_threshold: float = CONFIDENCE_THRESHOLD,
+    installed_devices: frozenset[str] | set[str] | None = None,
 ) -> Decision:
     """위험판단 결과와 현장 실측값으로 최종 조치를 정한다.
 
@@ -383,6 +401,11 @@ def decide(
     sensors : 현장 즉응규칙이 보는 실측값
     confidence : 위험유형 -> AI 판단 신뢰도(0~1)
     compound_reasons : 복합위험 판단근거 문구
+    installed_devices : 구동부가 실제로 달린 장치 이름. 생략하면
+        :data:`ALL_DEVICES` — 판단은 하드웨어 사정과 무관해야 하므로
+        엔진의 기본은 '다 있다'이다. 현장 설정이 좁혀 넘기면, 여기 없는
+        장치로 가는 조치는 실행이 아니라 **권고**로 내려간다. 거부가 아니다 —
+        해야 할 일은 그대로이고 손이 바뀔 뿐이다.
 
     Returns
     -------
@@ -432,7 +455,24 @@ def decide(
         action.rejected_by = _is_blocked(action, resolved)
         resolved.append(action)
 
+    # 구동부가 없는 장치는 자동으로 움직일 수 없다. 거부가 아니라 권고다 —
+    # 해야 할 일은 그대로이고 손이 바뀔 뿐이므로, 화면에서 지우면 안 된다.
+    installed = (
+        ALL_DEVICES if installed_devices is None
+        else frozenset(installed_devices) | ALWAYS_AVAILABLE
+    )
+    manual = False
+    for action in resolved:
+        if action.rejected_by or action.device in installed:
+            continue
+        action.advisory = True
+        manual = True
+        if NO_ACTUATOR_NOTE not in action.reason:
+            action.reason = f"{action.reason} ({NO_ACTUATOR_NOTE})"
+
     mode = "권고(농가 승인 필요)" if low_confidence else "자동"
+    if manual and not low_confidence:
+        mode = "일부 수동(구동부 미설치)"
     if sensors.emergency_stop or sensors.overcurrent:
         mode = "안전정지"
     elif sensors.comms_down:

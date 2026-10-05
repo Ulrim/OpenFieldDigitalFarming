@@ -127,6 +127,13 @@ body {
 /* span 이라 블록으로 바꿔야 제목 아래로 내려간다 */
 .todo .act-text, .todo .act-note { display: block; }
 .todo .act-note { font-size: 14px; color: var(--ink-3); margin-top: 3px; }
+/* 기계가 못 하는 것. 색만으로 알리지 않고 글자로 적는다. */
+.todo .byhand {
+  display: inline-block; margin-left: 8px; vertical-align: 2px;
+  font-size: 12px; font-weight: 700; font-style: normal; letter-spacing: .02em;
+  padding: 2px 8px; border-radius: 99px;
+  color: var(--warning-ink); border: 1px solid currentColor;
+}
 
 /* 휴대폰에서는 한 줄에 하나씩 — '병 생기기 쉬움' 같은 이름이 잘려 읽히지 않는다 */
 .ok-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
@@ -415,6 +422,12 @@ const PLAIN_NOW = [
 function plainAction(a) {
   const text = `${a.device} ${a.command}`;
   for (const [re, [what, why]] of PLAIN_ACTION) if (re.test(text)) return { what, why };
+  /* 짝이 없는 '알림'은 할 일이 아니다. 이 화면 자체가 그 알림이라서,
+     목록에 올리면 '알림 고온·건조 주의 알림' 같은 줄이 생긴다. 위에
+     이미 큰 글씨로 적혀 있는 것을 번호까지 붙여 되풀이하는 셈이다.
+     뜻이 있는 알림(서리 경보 → 내일 아침 잎 끝 살펴보기)은 PLAIN_ACTION
+     에 짝이 있으므로 여기까지 내려오지 않는다. */
+  if (a.device === "알림") return null;
   return { what: `${a.device} ${a.command}`, why: a.reason };
 }
 
@@ -529,6 +542,7 @@ function render(d) {
 }
 
 function renderFarm(d) {
+  let byHandShown = 0;      // 화면에 '직접'으로 표시된 줄 수
   const levelOf = (c) => Math.max(...Object.values(c.horizons).map((h) => h.level));
   const ranked = d.cards.slice().sort((a, b) => levelOf(b) - levelOf(a));
   const top = ranked[0];
@@ -547,16 +561,23 @@ function renderFarm(d) {
     const when = judgement
       ? `${fmt(judgement.expectedOnset)}쯤`
       : "앞으로 3시간 안";
-    const todo = d.actions.filter((a) => !a.rejectedBy).map(plainAction);
+    /* 구동부가 없는 조치는 기계가 못 한다. 할 일은 그대로지만 손이
+       바뀌므로, 농가가 '내가 나가서 해야 하는 것'을 한눈에 알아야 한다. */
+    const todo = d.actions.filter((a) => !a.rejectedBy).map((a) => {
+      const plain = plainAction(a);
+      return plain && { ...plain, byHand: /구동부 미설치/.test(a.reason || "") };
+    }).filter(Boolean);
     const seen = new Set();
     const unique = todo.filter((t) => !seen.has(t.what) && seen.add(t.what));
+    byHandShown = unique.filter((t) => t.byHand).length;
     alarm.innerHTML = `
       <div class="when">${when} · ${PLAIN_RISK[top.risk] || top.name}</div>
       <div class="what">${(HEADLINE[top.risk] || ["", "위험이 예상됩니다", "위험합니다"])[level]}</div>
       <div class="why">${plainWhy(top.risk, d.environment, judgement)}</div>
       <ol class="todo">${unique.map((t, i) => `
         <li><span class="no">${i + 1}</span>
-          <span><span class="act-text">${t.what}</span>
+          <span><span class="act-text">${t.what}${
+            t.byHand ? '<em class="byhand">직접</em>' : ""}</span>
           <span class="act-note">${t.why}</span></span></li>`).join("")}</ol>`;
   }
 
@@ -575,9 +596,13 @@ function renderFarm(d) {
       <span class="st">${LV[lv]}</span></div>`;
   }).join("");
 
-  $("farm-note").textContent = d.mode === "자동"
-    ? "자동으로 실행됩니다. 직접 하시려면 제어함에서 수동으로 바꾸세요."
-    : `${d.mode} — 농가가 확인해야 실행됩니다.`;
+  $("farm-note").textContent =
+    byHandShown
+      ? `'직접' 표시된 ${byHandShown}가지는 기계가 못 합니다. 나가셔서 해 주세요. `
+        + "나머지는 자동으로 실행됩니다."
+      : d.mode === "자동"
+        ? "자동으로 실행됩니다. 직접 하시려면 제어함에서 수동으로 바꾸세요."
+        : `${d.mode} — 농가가 확인해야 실행됩니다.`;
 }
 
 // 농가 / 운영자 화면 전환

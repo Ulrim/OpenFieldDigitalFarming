@@ -62,6 +62,14 @@ class EdgeConfig:
     zone: str = "treatment"
     period: int = DEFAULT_PERIOD
     station: str = "실증포장"
+    #: 구동부가 실제로 달린 장치. ``None`` 이면 전부 달린 것으로 본다.
+    #:
+    #: 1차 구매분은 관수밸브와 전원차단(스마트 차단기)만 덮는다. 차광막·
+    #: 야간피복·살수 구동부는 별도 발주다. 이것을 적어 두지 않으면 엔진이
+    #: '차광막 차광 한정 전개'를 **실행**으로 기록한다. 실행된 것은 없는데
+    #: 제어 이력에는 남고, 그 이력이 그대로 성능평가의 제어응답 측정
+    #: 대상이 된다. 구동부가 들어오면 설정에 이름을 더하면 된다.
+    installed_devices: frozenset[str] | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -79,6 +87,9 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         s.add_argument("--zone", default="treatment")
         s.add_argument("--period", type=int, default=DEFAULT_PERIOD)
         s.add_argument("--station", default="실증포장")
+        s.add_argument("--installed-devices", default=None,
+                       help="구동부가 달린 장치를 쉼표로. 생략하면 설정파일, "
+                            "그것도 없으면 전부 달린 것으로 본다")
         s.add_argument("--verbose", action="store_true")
     return p.parse_args(argv)
 
@@ -102,7 +113,27 @@ def load_config(args: argparse.Namespace) -> EdgeConfig:
         zone=args.zone,
         period=args.period,
         station=args.station,
+        installed_devices=_installed_devices(args, settings),
     )
+
+
+def _installed_devices(
+    args: argparse.Namespace, settings: dict
+) -> frozenset[str] | None:
+    """구동부가 달린 장치 목록을 정한다. 명령행이 설정파일을 이긴다.
+
+    아무 데도 적혀 있지 않으면 ``None`` 을 돌려 전부 달린 것으로 본다.
+    현장에 내보낼 때는 반드시 적어야 하는 값이지만, 기본값을 '아무것도
+    없다'로 두면 설정을 깜빡한 제어기가 조용히 아무것도 실행하지 않는다.
+    그쪽이 더 위험하므로 기본은 '다 있다'로 두고 문서에서 못을 박는다.
+    """
+    raw = getattr(args, "installed_devices", None)
+    if raw is None:
+        raw = settings.get("edge", {}).get("installed_devices")
+    if raw is None:
+        return None
+    names = raw.split(",") if isinstance(raw, str) else list(raw)
+    return frozenset(n.strip() for n in names if n.strip())
 
 
 def load_models(model_dir: Path, horizon: int = HORIZON) -> dict:
@@ -218,7 +249,8 @@ def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
         levels.get("rain_wet", 0), levels.get("disease", 0), levels.get("frost", 0)
     )
     sensors = sensors_from(observations, now)
-    decision = decide(levels, sensors, confidence=confidences, compound_reasons=reasons)
+    decision = decide(levels, sensors, confidence=confidences, compound_reasons=reasons,
+                      installed_devices=config.installed_devices)
 
     judgements = [
         RiskJudgement(
