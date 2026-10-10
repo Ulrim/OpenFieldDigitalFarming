@@ -265,15 +265,47 @@ def performance_report(args, data: dict) -> str:
                 frame[column] = frame[column].round(3)
         lines += [table(frame), "", f"학습 경로: {vision.get('path', '?')}", ""]
 
+    availability = data.get("availability")
+    lines += ["## 6. 데이터 정상 수집·저장률", ""]
+    if availability:
+        overall = availability.get("수집·저장률", 0.0)
+        lines += [
+            f"- 수집률 **{availability.get('수집률', 0):.3%}** "
+            f"({availability.get('관측표본', 0):,}/{availability.get('기대표본', 0):,} 표본)",
+            (f"- 저장률 **{availability['저장률']:.3%}**"
+             if availability.get("저장률") is not None
+             else "- 저장률 — 판단 이력 미수집"),
+            f"- **수집·저장률 {overall:.3%}** / 목표 {TARGETS['storage_rate']:.0%} "
+            f"→ {'달성' if overall >= TARGETS['storage_rate'] else '미달'}",
+            "",
+        ]
+        gaps = availability.get("결측구간") or []
+        if gaps:
+            lines += ["가장 긴 결측 구간", "", "| 시작 | 끝 | 길이(칸) |", "|---|---|---|"]
+            lines += [f"| {a} | {b} | {n} |" for a, b, n in gaps[:5]]
+            lines += [""]
+    else:
+        lines += [
+            f"목표는 {TARGETS['storage_rate']:.0%} 이상이다. 산출 방법은 "
+            "`ofdf.evaluation.availability` 에 코드로 고정해 두었고, 현장 수집이 "
+            "시작되면 `scripts/measure_availability.py` 로 바로 숫자가 나온다. "
+            "수집률(센서·통신)과 저장률(판단 이력)을 따로 세어 곱한다 — 둘은 "
+            "서로 다른 고장이기 때문이다.",
+            "",
+            "> 아직 현장 수집 자료가 없어 값이 비어 있다. 시험 구간을 밖에서 "
+            "지정해야 수집기가 죽어 있던 시간이 분모에 들어간다. 그렇게 하지 "
+            "않으면 자료가 있는 구간만 세어 100%가 나온다.",
+            "",
+        ]
+
     lines += [
-        "## 6. 측정하지 못한 항목",
+        "## 7. 측정하지 못한 항목",
         "",
         "| 항목 | 사유 | 측정 가능 시점 |",
         "|---|---|---|",
         "| 현장 제어응답 | 밸브·개폐기 실측 필요 | 제어함·관수라인 설치 후 |",
         "| 차광막 완전 회수 시간 | 구동부 실측 필요 | 구조물·차광 설치 후 |",
         "| 로컬 독립운전 72시간 | 실제 통신 차단 시험 필요 | 제어기 설치 후 |",
-        "| 데이터 정상 수집·저장률 | 현장 수집 개시 후 집계 | 센서 설치 후 |",
         "| 강풍 시나리오 자연사례 | 3초 순간최대풍속 계측기 필요 | 기상 마스트 설치 후 |",
         "",
     ]
@@ -460,6 +492,7 @@ def main() -> int:
         "weather": read_csv(weather_dir / "performance.csv"),
         "importance": read_json(weather_dir / "feature_importance.json"),
         "scenarios": read_csv(root / "scenarios" / "scenario_results.csv"),
+        "availability": read_json(root / "availability.json"),
         "timing": read_json(root / "benchmark" / "benchmark.json"),
         "vision": read_json(root / "vision" / "performance.json"),
     }
