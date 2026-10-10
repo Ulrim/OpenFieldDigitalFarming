@@ -1,8 +1,8 @@
 # AI 모델 설명서
 
 - 모델명 : 노지 대파 농지위험 판단모델 (ofdf-weather)
-- 버전 : 0.1.0 (2a49f44)
-- 작성일 : 2026-10-05
+- 버전 : 0.1.0 (b308b7a)
+- 작성일 : 2026-10-10
 - 수행기관 : 주식회사 컬리버
 
 ## 1. 용도
@@ -71,10 +71,10 @@
 
 ## 6. 주요 영향변수
 
-- **고온·건조 1시간** : t_air, canopy_temp, soil_index_min3, soil_index, solar_w_delta3
-- **고온·건조 3시간** : t_air, soil_index, canopy_temp, solar_w_delta3, soil_index_min6
-- **강우·과습 1시간** : rain_mean6, rain_sum6, soil_index_delta1, soil_index_delta3, rain_sum3
-- **강우·과습 3시간** : rain_sum6, rain_mean6, cloud_cover, t_min_night, soil_index_delta6
+- **고온·건조 1시간** : t_air, soil_index, solar_w_delta3, canopy_temp, t_air_mean1
+- **고온·건조 3시간** : t_air, soil_index, canopy_temp, hour_sin, soil_index_mean3
+- **강우·과습 1시간** : rain_sum6, rain_mean6, rain_delta3, soil_index_delta1, soil_index_delta3
+- **강우·과습 3시간** : rain_mean6, rain_sum6, rh_min24, soil_index_min6, soil_index_max24
 
 개별 판단의 근거는 전역 중요도가 아니라 그 판단의 기여도(SHAP)로 뽑아
 화면과 로그에 상위 3개를 남긴다.
@@ -119,7 +119,7 @@ python scripts/benchmark_inference.py --cache artifacts/dataset.pkl \
 python scripts/build_report.py --artifacts artifacts --out reports
 ```
 
-- 분할 씨앗 고정(기본 42), 소프트웨어 0.1.0 (2a49f44)
+- 분할 씨앗 고정(기본 42), 소프트웨어 0.1.0 (b308b7a)
 - 실행 환경 : Python 3.11.15 / x86_64
 - 물리 유효범위 등 품질 기준은 `ofdf.data.quality` 에 상수로 둔다 (8개 항목)
 - 차광 제한 : 120분/일
