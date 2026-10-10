@@ -16,11 +16,44 @@ from ofdf.labels.risk import CAUTION, NORMAL, WARNING
 
 
 def test_all_scenarios_meet_criteria():
-    """8종 전체가 판정기준을 충족한다."""
+    """핵심 실증 시나리오 전체가 판정기준을 충족한다."""
     results = scenario.run_all()
-    assert len(results) == 8
+    # 사업계획서 8종 가운데 통신장애가 5종으로 나뉘므로 7 + 5 = 12 이다.
+    assert len(results) == 12
     failed = [r.name for r in results if not r.meets_criterion]
     assert not failed, f"부적합: {failed}"
+
+
+def test_comms_failure_is_five_distinct_scenarios():
+    """통신장애는 같은 시험의 반복이 아니라 서로 다른 고장 양상이어야 한다.
+
+    판정기준에 '5종 시나리오' 라고 적어 두고 같은 생성기를 난수만 바꿔
+    5회 돌리고 있었다. 반복시험이지 5종 시험이 아니다.
+    """
+    assert len(scenario.COMMS_VARIANTS) == 5
+    generators = {gen for _, gen in scenario.COMMS_VARIANTS}
+    assert len(generators) == 5, "서로 다른 생성기여야 한다"
+
+    # 구분 기준은 두절 패턴만이 아니다. '두절 중 안전사건' 은 두절 모양이
+    # 단기 두절과 같고 과전류가 끼어든다는 점이 다르다 — 그것도 엄연히
+    # 다른 고장이다. 그래서 입력 전체를 보고 겹치는지 센다.
+    import numpy as np
+    signatures = {
+        tuple((s.sensors.comms_down, s.sensors.overcurrent, s.sensors.emergency_stop)
+              for s in gen(np.random.default_rng(7)))
+        for _, gen in scenario.COMMS_VARIANTS
+    }
+    assert len(signatures) == 5, f"입력이 겹치는 시나리오가 있다: {len(signatures)}종"
+
+    # 두절 길이도 서로 달라야 같은 것을 되풀이하지 않는다
+    lengths = {
+        sum(s.sensors.comms_down for s in gen(np.random.default_rng(7)))
+        for _, gen in scenario.COMMS_VARIANTS
+    }
+    assert len(lengths) >= 3, f"두절 길이가 사실상 한 종류다: {lengths}"
+
+    names = [r.name for r in scenario.run_all() if r.name.startswith("통신장애")]
+    assert len(names) == 5
 
 
 def test_results_table_is_reportable():

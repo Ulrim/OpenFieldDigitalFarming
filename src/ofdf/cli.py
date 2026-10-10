@@ -48,7 +48,14 @@ DEFAULT_PERIOD = 300
 WINDOW_HOURS = 48
 
 #: 예측 시계
-HORIZON = 3
+#: 엣지가 쓰는 예측시계(시간). 짧은 것부터 적는다 — 예상시점을 '위험이
+#: 처음 넘어서는 시계'로 잡기 때문에 순서가 뜻을 가진다.
+#:
+#: 전에는 3시간 하나만 읽었다. 1시간 모델을 학습해 놓고 엣지가 쓰지 않아,
+#: 화면이 1·3시간 두 칸을 보여주게 돼 있는데도 3시간만 채워졌고 예상시점은
+#: 언제나 '지금+3시간' 이었다.
+HORIZONS = (1, 3)
+HORIZON = HORIZONS[-1]      # 조치 판단에 쓰는 대표 시계
 
 
 @dataclass
@@ -136,17 +143,21 @@ def _installed_devices(
     return frozenset(n.strip() for n in names if n.strip())
 
 
-def load_models(model_dir: Path, horizon: int = HORIZON) -> dict:
-    """위험유형별 모델을 읽는다."""
+def load_models(model_dir: Path, horizons: tuple[int, ...] = HORIZONS) -> dict:
+    """위험유형별 모델을 예측시계마다 읽는다. ``{시계: {위험: 모델}}``."""
     import lightgbm as lgb
 
-    models = {}
-    for risk in BASE_RISKS:
-        path = model_dir / f"model_{risk}_h{horizon}.txt"
-        if path.exists():
-            models[risk] = lgb.Booster(model_file=str(path))
-        else:
-            LOG.warning("모델 없음: %s", path)
+    models: dict[int, dict] = {}
+    for horizon in horizons:
+        bucket = {}
+        for risk in BASE_RISKS:
+            path = model_dir / f"model_{risk}_h{horizon}.txt"
+            if path.exists():
+                bucket[risk] = lgb.Booster(model_file=str(path))
+            else:
+                LOG.warning("모델 없음: %s", path)
+        if bucket:
+            models[horizon] = bucket
     return models
 
 
@@ -170,6 +181,27 @@ def read_window(config: EdgeConfig) -> pd.DataFrame | None:
 
     window = zone.tail(WINDOW_HOURS + 1)
     return add_derived(window)
+
+
+def judge_all(models: dict, features: pd.DataFrame) -> dict[int, tuple[dict, dict, dict]]:
+    """예측시계마다 판단한다. ``{시계: (등급, 신뢰도, 판단근거)}``."""
+    return {h: judge(bucket, features) for h, bucket in sorted(models.items())}
+
+
+def earliest_onset(
+    by_horizon: dict[int, tuple[dict, dict, dict]], risk: str, now: pd.Timestamp
+) -> str | None:
+    """위험이 처음 주의 이상으로 올라오는 시계를 예상시점으로 돌려준다.
+
+    1시간 모델이 이미 주의라면 한 시간 안의 일이고, 1시간은 정상인데
+    3시간이 경계라면 그 사이에 온다. 전에는 시계와 무관하게 '지금+3시간'
+    을 적었다 — 예상이 아니라 상수였다.
+    """
+    for horizon in sorted(by_horizon):
+        levels, _, _ = by_horizon[horizon]
+        if levels.get(risk, 0) > 0:
+            return (now + pd.Timedelta(hours=horizon)).isoformat()
+    return None
 
 
 def judge(models: dict, features: pd.DataFrame) -> tuple[dict, dict, dict]:
@@ -244,7 +276,10 @@ def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
     features = build_features(observations)
     now = pd.Timestamp(features.index[-1])
 
-    levels, confidences, evidence = judge(models, features)
+    by_horizon = judge_all(models, features)
+    # 조치는 대표 시계(가장 먼 것)로 정한다. 더 멀리 보는 쪽이 선행시간을
+    # 확보하고, 짧은 시계는 예상시점을 좁히는 데 쓴다.
+    levels, confidences, evidence = by_horizon[max(by_horizon)]
     reasons = compound_reasons(
         levels.get("rain_wet", 0), levels.get("disease", 0), levels.get("frost", 0)
     )
@@ -256,7 +291,7 @@ def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
         RiskJudgement(
             risk_type=risk, horizon_hours=HORIZON, level=level,
             level_name=LEVEL_NAMES[level], confidence=confidences.get(risk, 1.0),
-            expected_onset=(now + pd.Timedelta(hours=HORIZON)).isoformat(),
+            expected_onset=earliest_onset(by_horizon, risk, now),
             evidence=evidence.get(risk, []),
         )
         for risk, level in levels.items() if level > 0
@@ -291,9 +326,14 @@ def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
             ],
             "cards": [
                 {"risk": r, "name": RISK_LABELS_KO[r],
-                 "horizons": {str(HORIZON): {
-                     "level": l, "levelName": LEVEL_NAMES[l],
-                     "confidence": round(confidences.get(r, 1.0), 3)}}}
+                 "horizons": {
+                     str(h): {
+                         "level": by_horizon[h][0].get(r, 0),
+                         "levelName": LEVEL_NAMES[by_horizon[h][0].get(r, 0)],
+                         "confidence": round(by_horizon[h][1].get(r, 1.0), 3),
+                     }
+                     for h in sorted(by_horizon) if r in by_horizon[h][0]
+                 }}
                 for r, l in levels.items()
             ],
             "judgements": [], "actions": [

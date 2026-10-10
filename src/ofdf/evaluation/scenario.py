@@ -307,22 +307,65 @@ def wind_safety_steps(rng: np.random.Generator) -> list[Step]:
     return run_steps(steps)
 
 
-def comms_failure_steps(rng: np.random.Generator) -> list[Step]:
-    """서버 통신차단 -> 위험조건 -> 현장 독립제어 -> 복구."""
+def _comms_steps(rng: np.random.Generator, outage: list[bool], *,
+                 overcurrent_at: int | None = None) -> list[Step]:
+    """두절 패턴 하나를 받아 서리 위험 상황의 시계열을 만든다."""
     steps = []
-    for hour in range(6):
-        down = 1 <= hour <= 4
+    for hour, down in enumerate(outage):
         steps.append(Step(
             hour=(21 + hour) % 24,
             risk_levels={"frost": WARNING},
             sensors=SensorState(
                 comms_down=down,
+                overcurrent=(overcurrent_at is not None and hour == overcurrent_at),
                 gust_3s=_jitter(rng, 1.0, 0.3),
                 hour=(21 + hour) % 24,
             ),
             confidence={"frost": 0.88},
         ))
     return run_steps(steps)
+
+
+def comms_short_outage(rng):
+    """① 단기 두절 — 몇 시간 끊겼다가 복구된다."""
+    return _comms_steps(rng, [False, True, True, True, True, False])
+
+
+def comms_long_outage(rng):
+    """② 장기 두절 — 끝까지 복구되지 않는다(72시간 독립운전의 축소판)."""
+    return _comms_steps(rng, [False] + [True] * 11)
+
+
+def comms_flapping(rng):
+    """③ 간헐 두절 — 끊김과 복구가 반복된다. 모드가 널뛰면 안 된다."""
+    return _comms_steps(rng, [False, True, False, True, True, False, True, False])
+
+
+def comms_recovery_backlog(rng):
+    """④ 긴 두절 뒤 복구 — 쌓인 이력을 올리는 구간이 있어야 한다."""
+    return _comms_steps(rng, [False] + [True] * 8 + [False, False, False])
+
+
+def comms_outage_with_safety_event(rng):
+    """⑤ 두절 중 안전사건 — 서버 없이도 L0 안전규칙이 동작해야 한다.
+
+    통신이 살아 있을 때만 안전이 동작한다면 그것은 안전장치가 아니다.
+    """
+    return _comms_steps(rng, [False, True, True, True, True, False], overcurrent_at=3)
+
+
+#: 통신장애 5종. 사업계획서의 '5종 시나리오' 를 서로 다른 고장 양상으로
+#: 옮긴 것이다. 전에는 같은 생성기를 난수만 바꿔 5회 돌리면서 판정기준에는
+#: '5종' 이라고 적고 있었다 — 반복시험이지 5종 시험이 아니었다.
+#:
+#: 이 분류가 사업계획서의 5종과 1:1로 맞는지는 원문 대조가 필요하다.
+COMMS_VARIANTS = [
+    ("단기 두절·복구", comms_short_outage),
+    ("장기 두절(독립운전 지속)", comms_long_outage),
+    ("간헐 두절(플래핑)", comms_flapping),
+    ("복구 후 이력 동기화", comms_recovery_backlog),
+    ("두절 중 안전사건", comms_outage_with_safety_event),
+]
 
 
 # --------------------------------------------------------------------------
@@ -463,8 +506,17 @@ def check_comms(run: Run) -> Run:
     down = [s for s in run.steps if s.sensors.comms_down]
     up = [s for s in run.steps if not s.sensors.comms_down]
 
-    local_mode = all(s.decision.mode == "로컬 독립운전" for s in down)
-    kept_control = all(s.has("야간피복", "피복") or s.has("관수밸브", "금지") for s in down)
+    # 안전사건이 끼어들면 모드가 '안전정지'로 올라간다. 그쪽이 더 높은
+    # 우선순위이므로 독립운전 표기가 아니라고 해서 실패가 아니다.
+    local_mode = all(
+        s.decision.mode in ("로컬 독립운전", "안전정지") for s in down
+    )
+    kept_control = all(
+        s.has("야간피복", "피복") or s.has("관수밸브", "금지")
+        or s.has("전 구동부", "차단") or s.has("전 구동부", "잠금")
+        for s in down
+    )
+    # 복구 구간이 없는 시나리오(장기 두절)도 있다. 있으면 풀려야 한다.
     recovered = all(s.decision.mode != "로컬 독립운전" for s in up)
 
     run.passed = bool(down) and local_mode and kept_control and recovered
@@ -488,8 +540,7 @@ SCENARIOS = [
      "20회 중 19회 이상 정상작동, 차광 시간대·지속시간 조건 준수 100%"),
     ("강풍 안전보호", wind_safety_steps, check_wind_safety, 10, 10,
      "10회 모두 안전회수(5분 이내 완전회수), 과전류 정지·경보 정상"),
-    ("통신장애", comms_failure_steps, check_comms, 5, 5,
-     "5종 시나리오 모두 제어·저장·복구동기화"),
+    # 통신장애는 아래에서 5종을 각각 펼친다.
 ]
 
 
@@ -515,9 +566,18 @@ def run_scenario(
     )
 
 
+#: 통신장애 5종을 개별 시나리오로 펼친다. 각각 3회씩 반복한다.
+COMMS_SCENARIOS = [
+    (f"통신장애 {i + 1}: {label}", gen, check_comms, 3, 3,
+     "두절 중 제어·저장 유지, 복구 시 동기화")
+    for i, (label, gen) in enumerate(COMMS_VARIANTS)
+]
+
+
 def run_all(seed: int = 42) -> list[ScenarioResult]:
-    """8종 전체를 시험한다."""
-    return [run_scenario(*spec, seed=seed) for spec in SCENARIOS]
+    """핵심 실증 시나리오 전체를 시험한다(통신장애는 5종으로 나뉜다)."""
+    return [run_scenario(*spec, seed=seed)
+            for spec in SCENARIOS + COMMS_SCENARIOS]
 
 
 def results_table(results: list[ScenarioResult]) -> pd.DataFrame:

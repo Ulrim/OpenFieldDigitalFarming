@@ -108,3 +108,38 @@ def test_soil_water_index_slows_drying_when_dry():
     index = soil_water_index(rain, et0)
     assert index.iloc[-1] > 0.0
     assert index.is_monotonic_decreasing
+
+
+def test_daily_columns_are_lagged_by_one_day():
+    """일자료는 하루 전 값이어야 한다 — 미래 정보 누설 방지.
+
+    그날 값을 그날 전체에 깔면 01시에 그날 밤의 실현 최저기온을 보게 되고,
+    그것은 서리 정답을 미리 보는 것에 가깝다. 제어기가 운용 시점에 실제로
+    가진 것은 어제까지 실현된 일자료뿐이다.
+    """
+    import pandas as pd
+    from ofdf.data import agera5
+
+    index = pd.date_range("2025-10-02", periods=48, freq="h")
+    daily = pd.DataFrame({
+        "date": pd.to_datetime(["2025-10-01", "2025-10-02", "2025-10-03"]),
+        "t_min_night": [1.0, 2.0, 3.0],
+    })
+
+    prev_day = index.normalize() - pd.Timedelta(days=1)
+    mapped = pd.Series(prev_day, index=index).map(daily.set_index("date")["t_min_night"])
+
+    # 10/2 의 시각들은 10/1 값을, 10/3 의 시각들은 10/2 값을 본다
+    assert mapped.loc["2025-10-02 00:00"] == 1.0
+    assert mapped.loc["2025-10-02 23:00"] == 1.0
+    assert mapped.loc["2025-10-03 00:00"] == 2.0
+    assert agera5.RENAME["2m_temperature_night_time_minimum"] == "t_min_night"
+
+
+def test_assembly_source_uses_the_lagged_day():
+    """조립 코드가 실제로 하루 전 날짜로 매핑하는지 본다."""
+    from pathlib import Path
+    src = Path(__file__).resolve().parents[1] / "src" / "ofdf" / "data" / "dataset.py"
+    text = src.read_text(encoding="utf-8")
+    assert "prev_day = one.index.normalize() - pd.Timedelta(days=1)" in text
+    assert "pd.Series(prev_day, index=one.index).map(" in text

@@ -87,11 +87,26 @@ def build(
         # 풍속 결측 지점은 지역 대표 풍속으로 채운다
         one["wind_speed"] = one["wind_speed"].fillna(wind.reindex(one.index))
 
-        # 일자료 병합(그날 값을 하루 전체에 깔아 준다)
-        day = one.index.normalize()
+        # 일자료 병합 — **하루 전** 값을 쓴다.
+        #
+        # 그날 값을 그날 전체에 깔면 미래 정보가 섞인다. t_min_night 는
+        # 그날 밤의 실현 최저기온이라 01시에 그것을 보는 것은 서리 정답을
+        # 미리 보는 것에 가깝고, rh_max_daily 도 마찬가지다. 모델이 운용
+        # 시점에 가질 수 없는 값으로 학습하면 성능이 실제보다 좋게 나온다.
+        #
+        # 제어기가 어느 시각에든 실제로 가지고 있는 것은 **어제까지 실현된**
+        # 일자료다. 그래서 하루 뒤로 민다. 버리지 않는 이유는 et0 가 토양
+        # 물수지(soil_index)의 입력이고, 어제 증발산은 오늘을 설명하는 데
+        # 여전히 쓸모가 있기 때문이다.
+        #
+        # 오늘의 예보를 쓰는 길은 따로 있다(ofdf.data.forecast). 예보는
+        # 오차가 있는 값이고, 실현값을 예보인 양 넣는 것과는 다르다.
+        prev_day = one.index.normalize() - pd.Timedelta(days=1)
         for col in ("et0", "cloud_cover", "t_min_night", "rh_max_daily"):
             if col in daily.columns:
-                one[col] = pd.Series(day, index=one.index).map(daily.set_index("date")[col])
+                one[col] = pd.Series(prev_day, index=one.index).map(
+                    daily.set_index("date")[col]
+                )
         one["et0"] = one["et0"] / 24.0  # 일 총량을 시간 평균으로
 
         one = add_derived(one)
