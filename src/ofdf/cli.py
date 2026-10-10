@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import datetime
 import logging
+import os
 import signal
 import sys
 import time
@@ -77,6 +78,10 @@ class EdgeConfig:
     #: 제어 이력에는 남고, 그 이력이 그대로 성능평가의 제어응답 측정
     #: 대상이 된다. 구동부가 들어오면 설정에 이름을 더하면 된다.
     installed_devices: frozenset[str] | None = None
+    #: 기상청 단기예보 인증키. 저장소에 두지 않는다 — 환경변수
+    #: ``OFDF_KMA_SERVICE_KEY`` 나 설정파일에서 받는다. 없으면 예보 없이
+    #: 관측만으로 판단한다(판단이 멈추지는 않는다).
+    kma_service_key: str | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -121,6 +126,10 @@ def load_config(args: argparse.Namespace) -> EdgeConfig:
         period=args.period,
         station=args.station,
         installed_devices=_installed_devices(args, settings),
+        kma_service_key=(
+            os.environ.get("OFDF_KMA_SERVICE_KEY")
+            or settings.get("edge", {}).get("kma_service_key")
+        ),
     )
 
 
@@ -267,7 +276,10 @@ def write_dashboard(path: Path, payload: dict) -> None:
     temp.replace(path)
 
 
-def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
+def run_once(
+    config: EdgeConfig, models: dict, journal: Journal,
+    forecast_gate: "ForecastGateway | None" = None,
+) -> bool:
     """한 주기를 수행한다. 성공하면 True."""
     observations = read_window(config)
     if observations is None or observations.empty:
@@ -275,6 +287,16 @@ def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
 
     features = build_features(observations)
     now = pd.Timestamp(features.index[-1])
+
+    # 예보는 보조 입력이다. 못 받아도 판단을 멈추지 않는다 — 제어기는
+    # 통신이 끊긴 채로도 돌아야 하고, 예보를 못 받아 서리 판단이 멈추면
+    # 그것이 더 큰 사고다.
+    forecast_status = "미연동"
+    if forecast_gate is not None:
+        forecast_gate.fetch(now, tuple(sorted(models)) or HORIZONS)
+        forecast_status = forecast_gate.status
+        if forecast_gate.last_error:
+            LOG.warning("예보 실패: %s (%s)", forecast_gate.last_error, forecast_status)
 
     by_horizon = judge_all(models, features)
     # 조치는 대표 시계(가장 먼 것)로 정한다. 더 멀리 보는 쪽이 선행시간을
@@ -317,6 +339,7 @@ def run_once(config: EdgeConfig, models: dict, journal: Journal) -> bool:
             "generated": datetime.datetime.now().isoformat(),
             "station": config.station, "now": now.isoformat(),
             "modelVersion": f"ofdf-weather-{__version__}", "mode": decision.mode,
+            "forecastStatus": forecast_status,
             "environment": [
                 {"key": k, "name": k, "unit": "",
                  "value": round(float(observations.iloc[-1][k]), 2)}
@@ -357,6 +380,13 @@ def main(argv: list[str] | None = None) -> int:
     config = load_config(args)
 
     models = load_models(config.model_dir)
+
+    from ofdf.data.forecast import ForecastGateway, build_provider
+    gate = ForecastGateway(build_provider(config.kma_service_key))
+    if config.kma_service_key:
+        LOG.info("기상청 단기예보 연동 (격자 %s)", "나주 남평")
+    else:
+        LOG.info("예보 인증키 없음 — 관측만으로 판단한다")
     if not models:
         LOG.error("모델이 하나도 없다: %s", config.model_dir)
         return 1
@@ -366,7 +396,7 @@ def main(argv: list[str] | None = None) -> int:
     journal = Journal(config.journal_path)
 
     if args.command == "once":
-        return 0 if run_once(config, models, journal) else 1
+        return 0 if run_once(config, models, journal, gate) else 1
 
     stopping = False
 
@@ -381,7 +411,7 @@ def main(argv: list[str] | None = None) -> int:
     while not stopping:
         started = time.monotonic()
         try:
-            run_once(config, models, journal)
+            run_once(config, models, journal, gate)
         except Exception:                                  # noqa: BLE001
             # 한 주기가 실패해도 멈추지 않는다. 통신이 끊겨도 혼자 돌아야 한다.
             LOG.exception("주기 수행 실패 — 다음 주기에 다시 시도한다")

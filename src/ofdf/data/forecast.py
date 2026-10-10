@@ -279,3 +279,96 @@ def observed_skill(forecast: pd.Series, observed: pd.Series, *, threshold: float
         "임계성공지수(CSI)": round(hits / denominator, 3) if denominator else float("nan"),
         "양적 MAE": round(float((pair["forecast"] - pair["observed"]).abs().mean()), 3),
     }
+
+
+# --------------------------------------------------------------------------
+# 엣지 연동 — 장애 시 대체
+# --------------------------------------------------------------------------
+
+#: 예보를 못 받았을 때 몇 분까지 직전 예보를 계속 쓸지.
+#:
+#: 초단기예보는 매시 발표다. 한두 번 실패했다고 판단을 멈추면 안 되고,
+#: 반대로 몇 시간 지난 예보를 계속 쓰면 틀린 미래를 보는 셈이 된다.
+FORECAST_STALE_MINUTES = 150
+
+
+class ForecastGateway:
+    """예보를 받아 오되, 못 받으면 판단을 막지 않는다.
+
+    사업계획서는 기상청 단기예보 연동을 요구하지만, 제어기는 통신이 끊긴
+    채로도 72시간을 돌아야 한다. 둘을 같이 만족시키려면 **예보는 있으면
+    쓰고 없으면 없는 대로 가는 보조 입력**이어야 한다. 예보를 못 받아서
+    서리 판단이 멈추면 그것이 더 큰 사고다.
+
+    그래서 세 단계로 물러선다.
+
+    1. 지금 예보를 받는다.
+    2. 실패하면 마지막으로 받은 예보를 쓰되, 너무 오래된 것은 버린다.
+    3. 그것도 없으면 ``None`` 을 돌려준다 — 부르는 쪽은 관측만으로 판단한다.
+
+    어느 단계였는지는 :attr:`status` 에 남아 화면과 이력에 적힌다.
+    """
+
+    def __init__(
+        self,
+        provider: ForecastProvider | None,
+        *,
+        stale_minutes: int = FORECAST_STALE_MINUTES,
+    ) -> None:
+        self.provider = provider
+        self.stale_minutes = stale_minutes
+        self._last: pd.DataFrame | None = None
+        self._last_at: pd.Timestamp | None = None
+        self.status: str = "미연동"
+        self.last_error: str = ""
+
+    def fetch(
+        self, now: pd.Timestamp, horizons: tuple[int, ...] = FORECAST_HORIZONS
+    ) -> pd.DataFrame | None:
+        """예보를 돌려준다. 실패하면 직전 값으로, 그것도 없으면 ``None``."""
+        if self.provider is None:
+            self.status = "미연동"
+            return None
+
+        try:
+            frame = self.provider.at(now, horizons)
+            if frame is None or frame.empty or frame.isna().all().all():
+                raise ValueError("예보 응답이 비어 있다")
+        except Exception as exc:          # 통신·인증·형식 무엇이든 같게 다룬다
+            self.last_error = f"{type(exc).__name__}: {exc}"
+            return self._fallback(now)
+
+        self._last, self._last_at = frame, now
+        self.status = "정상"
+        self.last_error = ""
+        return frame
+
+    def _fallback(self, now: pd.Timestamp) -> pd.DataFrame | None:
+        if self._last is None or self._last_at is None:
+            self.status = "예보 없음"
+            return None
+
+        age = (now - self._last_at).total_seconds() / 60.0
+        if age > self.stale_minutes:
+            self.status = f"예보 만료({age:.0f}분)"
+            self._last = self._last_at = None
+            return None
+
+        self.status = f"직전 예보 사용({age:.0f}분 전)"
+        return self._last
+
+
+def build_provider(
+    service_key: str | None, *, nx: int | None = None, ny: int | None = None
+) -> ForecastProvider | None:
+    """인증키가 있으면 기상청 클라이언트를, 없으면 ``None`` 을 돌려준다.
+
+    키를 저장소에 두지 않는다. 환경변수나 설정파일에서 받아 넘긴다.
+    """
+    if not service_key:
+        return None
+    return KMAForecast(
+        service_key=service_key,
+        nx=nx if nx is not None else NAJU_NAMPYEONG_GRID["nx"],
+        ny=ny if ny is not None else NAJU_NAMPYEONG_GRID["ny"],
+    )
