@@ -12,7 +12,7 @@ from __future__ import annotations
 import numpy as np
 import pandas as pd
 
-from ofdf.labels.risk import LEAF_WETNESS_THRESHOLD
+from ofdf.labels.risk import LEAF_WETNESS_THRESHOLD, RiskThresholds
 
 #: 구간 통계를 만들 기본 변수
 BASE_VARIABLES = [
@@ -62,15 +62,38 @@ def duration_features(df: pd.DataFrame) -> pd.DataFrame:
         block = (~flag).cumsum()
         return flag.groupby(block).cumsum().astype(float)
 
+    th = RiskThresholds()
+    t_air = _safe(df, "t_air")
+    soil = _safe(df, "soil_index")
+
     conditions = {
         # 실측 엽면습윤센서는 연속값이라 바닥 잡음이 있다. 라벨과 같은 임계를 쓴다.
         "run_wet": _safe(df, "leaf_wetness") >= LEAF_WETNESS_THRESHOLD,
         "run_rh90": _safe(df, "rh") >= 90.0,
         "run_rain": _safe(df, "rain") > 0.0,
-        "run_dry": _safe(df, "rain").fillna(0.0) <= 0.0,
-        "run_hot30": _safe(df, "t_air") >= 30.0,
-        "run_cold4": _safe(df, "t_air") <= 4.0,
+        "run_dry": _safe(df, "rain").fillna(0.0) <= 0.0,   # 무강수 지속(토양 건조와 다르다)
+        "run_hot30": t_air >= 30.0,
+        "run_cold4": t_air <= 4.0,
         "run_canopy2": _safe(df, "canopy_temp") <= 2.0,
+
+        # 아래 셋은 **고온·건조 라벨이 실제로 쓰는 조건**의 지속시간이다.
+        #
+        # 그 라벨에서 주의와 경계를 가르는 것은 세기가 아니라 **지속시간**이다.
+        # 건조 분기는 같은 조건이 1시간이면 주의, 2시간이면 경계다. 즉 주의는
+        # 사실상 '건조 구간의 첫 1시간'이고, 그래서 주의 표본이 경계보다 드물다.
+        #
+        # 그런데 피처에는 그 지속시간이 없었다. run_dry 는 '비가 안 온 시간'
+        # 이지 토양이 마른 시간이 아니고, run_hot30 은 기온만 보고 라벨이
+        # 함께 요구하는 일사를 보지 않는다. 모델이 '이미 세 시간째 마른
+        # 상태'인지 '방금 마르기 시작'인지 구분할 수단이 없으니, 정상을
+        # 주의로 부르는 일이 잦았다(주의 정밀도 0.31).
+        #
+        # 모두 현재 시각까지의 관측으로만 만든다. 라벨은 미래 시각의 상태이므로
+        # 누설이 아니다.
+        "run_soil_low": soil <= th.soil_low,
+        "run_dry_warm": (soil <= th.soil_low) & (t_air >= th.dry_min_temp),
+        "run_hot_solar": (t_air >= th.heat_caution_temp)
+                         & (_safe(df, "solar_w") >= th.heat_caution_solar),
     }
     return pd.DataFrame({k: run_length(v) for k, v in conditions.items()}, index=df.index)
 

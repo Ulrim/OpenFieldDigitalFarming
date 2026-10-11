@@ -108,3 +108,78 @@ def test_states_are_within_valid_range(mode):
     states = build_states(frame, RiskThresholds(rain_caution_mode=mode))
     assert states.min().min() >= NORMAL
     assert states.max().max() <= WARNING
+
+
+# --------------------------------------------------------------------------
+# 라벨 조건과 피처의 대응
+# --------------------------------------------------------------------------
+
+def test_duration_features_cover_the_heat_dry_label_conditions():
+    """고온·건조 라벨은 지속시간으로 주의와 경계를 가른다.
+
+    건조 분기는 같은 조건이 1시간이면 주의, 2시간이면 경계다. 즉 주의는
+    사실상 '건조 구간의 첫 1시간'이다. 그런데 피처에 그 지속시간이 없으면
+    모델이 '이미 마른 지 오래'인지 '방금 마르기 시작'인지 구분할 수 없고,
+    정상을 주의로 부르게 된다(실제로 주의 정밀도가 0.31 이었다).
+
+    run_dry 는 '비가 안 온 시간'이라 이 역할을 못 한다. 토양 건조는 비와
+    따로 움직인다.
+    """
+    import pandas as pd
+    from ofdf.features.weather import duration_features
+    from ofdf.labels.risk import RiskThresholds
+
+    th = RiskThresholds()
+    index = pd.date_range("2025-09-01", periods=6, freq="h")
+    # 비는 내내 오지 않지만, 토양이 마르는 것은 3시각부터다
+    df = pd.DataFrame(
+        {
+            "t_air": 25.0, "rain": 0.0, "rh": 60.0, "solar_w": 300.0,
+            "soil_index": [60.0, 60.0, 60.0, 20.0, 20.0, 20.0],
+            "leaf_wetness": 0.0, "canopy_temp": 20.0,
+        },
+        index=index,
+    )
+    got = duration_features(df)
+
+    # 무강수는 처음부터 이어지지만 토양 건조는 아니다 — 둘은 다른 값이다
+    assert list(got["run_dry"]) == [1, 2, 3, 4, 5, 6]
+    assert list(got["run_dry_warm"]) == [0, 0, 0, 1, 2, 3]
+    assert list(got["run_soil_low"]) == [0, 0, 0, 1, 2, 3]
+
+    # 라벨이 주의/경계를 가르는 지점(1시간 / 2시간)이 피처에 그대로 보인다
+    assert got["run_dry_warm"].iloc[3] == th.dry_caution_hours
+    assert got["run_dry_warm"].iloc[4] == th.dry_warning_hours
+
+
+def test_hot_duration_feature_requires_solar_like_the_label():
+    """라벨의 고온 분기는 기온과 일사를 함께 본다. 기온만 보면 어긋난다."""
+    import pandas as pd
+    from ofdf.features.weather import duration_features
+
+    index = pd.date_range("2025-09-01", periods=4, freq="h")
+    df = pd.DataFrame(
+        {
+            "t_air": 31.0,                       # 내내 30℃ 이상
+            "solar_w": [100.0, 100.0, 750.0, 750.0],   # 일사는 뒤늦게 오른다
+            "rain": 0.0, "rh": 60.0, "soil_index": 60.0,
+            "leaf_wetness": 0.0, "canopy_temp": 25.0,
+        },
+        index=index,
+    )
+    got = duration_features(df)
+
+    assert list(got["run_hot30"]) == [1, 2, 3, 4]        # 기온만 본 값
+    assert list(got["run_hot_solar"]) == [0, 0, 1, 2]    # 라벨 조건을 본 값
+
+
+def test_duration_thresholds_follow_field_calibration():
+    """임계값을 하드코딩하지 않는다. 현장 보정이 바뀌면 피처도 따라가야 한다."""
+    from pathlib import Path
+
+    src = Path(__file__).resolve().parents[1] / "src" / "ofdf" / "features" / "weather.py"
+    text = src.read_text(encoding="utf-8")
+    assert "th.soil_low" in text
+    assert "th.dry_min_temp" in text
+    assert "th.heat_caution_temp" in text
+    assert "th.heat_caution_solar" in text
