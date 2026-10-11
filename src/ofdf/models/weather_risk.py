@@ -10,6 +10,7 @@ LightGBM·XGBoost를 1순위 후보로 둔 설계를 따른다.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -48,10 +49,11 @@ class TrainedRisk:
     columns: list[str]
     best_iteration: int
     class_weight: dict[int, float] = field(default_factory=dict)
+    #: 판정 시 등급별 확률에 곱하는 값. 검증셋에서 고른다.
+    decision_weight: list[float] = field(default_factory=lambda: [1.0, 1.0, 1.0])
 
     def predict(self, X: pd.DataFrame) -> np.ndarray:
-        proba = self.predict_proba(X)
-        return proba.argmax(axis=1)
+        return decide_levels(self.predict_proba(X), self.decision_weight)
 
     def predict_proba(self, X: pd.DataFrame) -> np.ndarray:
         return self.booster.predict(
@@ -126,6 +128,61 @@ def split_by_event(
     return rest_idx[train_rel], rest_idx[valid_rel], test_idx
 
 
+#: 판정 가중치를 고를 때 지켜야 할 놓침 방지율 하한.
+#: 사업계획서가 1순위로 둔 지표가 이것이므로, F1 을 올리려고 이 값을
+#: 깎는 선택은 애초에 후보에서 뺀다.
+RISK_RECALL_FLOOR = 0.85
+
+
+def decide_levels(proba: np.ndarray, weight: Sequence[float] | None = None) -> np.ndarray:
+    """등급별 확률에서 최종 등급을 고른다."""
+    if weight is None:
+        return proba.argmax(axis=1)
+    w = np.asarray(weight, dtype=float)[: proba.shape[1]]
+    return (proba * w).argmax(axis=1)
+
+
+def tune_decision_weights(
+    proba: np.ndarray,
+    y: np.ndarray,
+    *,
+    recall_floor: float = RISK_RECALL_FLOOR,
+) -> list[float]:
+    """검증셋에서 등급별 판정 가중치를 고른다.
+
+    argmax 는 등급이 심하게 불균형할 때 최적이 아니다. 고온·건조 3시간이
+    그 예다 — 주의 등급은 실제 300건인데 argmax 가 정상 540건을 주의로
+    불러, 주의 F1 0.42 하나가 Macro F1 을 0.80 아래로 끌어내렸다.
+
+    그래서 등급별 확률에 곱할 값을 검증셋에서 고른다. **시험셋은 보지
+    않는다.** 고른 값은 모델과 함께 저장되어 제어기도 같은 규칙으로
+    판정한다 — 시험한 것과 현장에서 도는 것이 달라서는 안 된다.
+
+    놓침 방지율은 하한을 두고 그 아래로 내려가는 후보를 제외한다.
+    F1 을 올리자고 위험을 더 놓치는 것은 재해 경보에서 옳은 교환이 아니다.
+    """
+    from sklearn.metrics import f1_score
+
+    grid = np.concatenate([np.linspace(0.05, 1.0, 20), np.linspace(1.1, 3.0, 20)])
+    risk = y >= 1
+    base = [1.0, 1.0, 1.0]
+    best_score = f1_score(y, decide_levels(proba), average="macro")
+    best = base
+
+    if not risk.any():
+        return best
+
+    for w1 in grid:
+        for w2 in grid:
+            pred = decide_levels(proba, [1.0, w1, w2])
+            if float((pred[risk] >= 1).mean()) < recall_floor:
+                continue
+            score = f1_score(y, pred, average="macro")
+            if score > best_score:
+                best_score, best = score, [1.0, float(w1), float(w2)]
+    return best
+
+
 def balanced_weights(y: np.ndarray) -> dict[int, float]:
     """클래스 가중치 — 드문 위험등급에 비중을 준다."""
     classes, counts = np.unique(y, return_counts=True)
@@ -178,7 +235,7 @@ def train_one(
             lgb.log_evaluation(0),
         ],
     )
-    return TrainedRisk(
+    model = TrainedRisk(
         risk=risk,
         horizon=horizon,
         booster=booster,
@@ -186,6 +243,11 @@ def train_one(
         best_iteration=booster.best_iteration,
         class_weight=weights,
     )
+    # 판정 가중치는 검증셋에서만 고른다. 시험셋은 보지 않는다.
+    model.decision_weight = tune_decision_weights(
+        model.predict_proba(X.iloc[valid_idx]), y[valid_idx]
+    )
+    return model
 
 
 def feature_importance(model: TrainedRisk, top: int = 15) -> pd.DataFrame:
@@ -233,6 +295,30 @@ def explain_one(model: TrainedRisk, X: pd.DataFrame, row: int, top: int = 3) -> 
 
 
 def save(model: TrainedRisk, path: str | Path) -> None:
-    """모델을 텍스트 포맷으로 저장한다(버전 관리·재현 목적)."""
-    Path(path).parent.mkdir(parents=True, exist_ok=True)
+    """모델을 텍스트 포맷으로 저장한다(버전 관리·재현 목적).
+
+    판정 가중치는 모델 파일 옆에 ``.weights.json`` 으로 함께 둔다. 이것이
+    없으면 제어기가 argmax 로 판정해 시험한 것과 다르게 동작한다.
+    """
+    import json
+
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
     model.booster.save_model(str(path), num_iteration=model.best_iteration or None)
+    path.with_suffix(".weights.json").write_text(
+        json.dumps({"decision_weight": list(model.decision_weight)}), encoding="utf-8"
+    )
+
+
+def load_decision_weight(path: str | Path) -> list[float] | None:
+    """모델 파일 경로에 딸린 판정 가중치를 읽는다. 없으면 ``None``."""
+    import json
+
+    side = Path(path).with_suffix(".weights.json")
+    if not side.exists():
+        return None
+    try:
+        got = json.loads(side.read_text(encoding="utf-8"))["decision_weight"]
+    except (ValueError, KeyError):
+        return None
+    return [float(v) for v in got] or None

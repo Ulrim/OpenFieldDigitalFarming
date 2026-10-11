@@ -35,6 +35,7 @@ from ofdf.action.recommend import SensorState, decide
 from ofdf.data import field as field_data
 from ofdf.features.derived import add_derived
 from ofdf.features.weather import build_features
+from ofdf.models import weather_risk
 from ofdf.labels.risk import RISK_LABELS_KO, compose_compound, compound_reasons
 
 LOG = logging.getLogger("ofdf.edge")
@@ -162,7 +163,12 @@ def load_models(model_dir: Path, horizons: tuple[int, ...] = HORIZONS) -> dict:
         for risk in BASE_RISKS:
             path = model_dir / f"model_{risk}_h{horizon}.txt"
             if path.exists():
-                bucket[risk] = lgb.Booster(model_file=str(path))
+                # 판정 가중치를 함께 싣는다. 이것이 빠지면 제어기가 argmax 로
+                # 판정해 공인시험에서 잰 것과 다르게 동작한다.
+                bucket[risk] = (
+                    lgb.Booster(model_file=str(path)),
+                    weather_risk.load_decision_weight(path),
+                )
             else:
                 LOG.warning("모델 없음: %s", path)
         if bucket:
@@ -218,11 +224,15 @@ def judge(models: dict, features: pd.DataFrame) -> tuple[dict, dict, dict]:
     row = features.iloc[[-1]]
     levels, confidences, evidence = {}, {}, {}
 
-    for risk, model in models.items():
+    for risk, entry in models.items():
+        model, weight = entry if isinstance(entry, tuple) else (entry, None)
         columns = model.feature_name()
         proba = model.predict(row.reindex(columns=columns))[0]
-        level = int(np.argmax(proba))
+        level = int(weather_risk.decide_levels(proba.reshape(1, -1), weight)[0])
         levels[risk] = level
+        # 신뢰도는 가중치를 적용하지 않은 원래 확률로 적는다 — 농가와
+        # 운영자가 보는 값은 모델이 그 등급을 얼마나 확신하는가이지,
+        # 판정 규칙이 얼마나 보수적인가가 아니다.
         confidences[risk] = float(proba[level])
 
         if level > 0:
