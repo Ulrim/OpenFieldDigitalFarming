@@ -83,6 +83,8 @@ class EdgeConfig:
     #: ``OFDF_KMA_SERVICE_KEY`` 나 설정파일에서 받는다. 없으면 예보 없이
     #: 관측만으로 판단한다(판단이 멈추지는 않는다).
     kma_service_key: str | None = None
+    #: Zigbee 장치 설치 정보. 화면의 '센서 상태' 칸이 쓴다.
+    devices_path: Path | None = None
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -100,6 +102,8 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         s.add_argument("--zone", default="treatment")
         s.add_argument("--period", type=int, default=DEFAULT_PERIOD)
         s.add_argument("--station", default="실증포장")
+        s.add_argument("--devices", default="configs/devices.yaml",
+                       help="Zigbee 장치 설치 정보 YAML")
         s.add_argument("--installed-devices", default=None,
                        help="구동부가 달린 장치를 쉼표로. 생략하면 설정파일, "
                             "그것도 없으면 전부 달린 것으로 본다")
@@ -131,6 +135,7 @@ def load_config(args: argparse.Namespace) -> EdgeConfig:
             os.environ.get("OFDF_KMA_SERVICE_KEY")
             or settings.get("edge", {}).get("kma_service_key")
         ),
+        devices_path=Path(args.devices) if args.devices else None,
     )
 
 
@@ -174,6 +179,65 @@ def load_models(model_dir: Path, horizons: tuple[int, ...] = HORIZONS) -> dict:
         if bucket:
             models[horizon] = bucket
     return models
+
+
+def sensor_status(config: EdgeConfig) -> list[dict]:
+    """장치별 최근 상태를 화면용으로 만든다.
+
+    배터리와 전파세기는 작물 위험과 무관하지만, **자료가 끊기기 전에 알려
+    주는 유일한 신호**다. 값이 사라진 뒤에 알면 그 사이 판단은 이미 비어
+    있었던 것이다.
+    """
+    if not config.devices_path or not Path(config.devices_path).exists():
+        return []
+    try:
+        from ofdf.data import zigbee
+
+        devices = zigbee.load_devices(config.devices_path)
+        if not devices:
+            return []
+        raw = read_field_long(config.field_dir)
+        if raw is None or raw.empty:
+            return []
+        status = zigbee.device_status(raw, devices)
+    except Exception as exc:                 # 화면 한 칸 때문에 판단이 멈추면 안 된다
+        LOG.warning("센서 상태를 만들지 못했다: %s", exc)
+        return []
+
+    now = pd.Timestamp.now()
+    out = []
+    for _, row in status.iterrows():
+        last = pd.Timestamp(row["last_seen"])
+        minutes = (now - last).total_seconds() / 60.0
+        out.append({
+            "sensorId": row["sensor_id"],
+            "zone": row["zone"],
+            "note": row["note"],
+            "lastSeen": last.isoformat(),
+            "minutesAgo": round(minutes, 1),
+            "battery": None if pd.isna(row["battery_pct"]) else float(row["battery_pct"]),
+            "link": None if pd.isna(row["linkquality"]) else float(row["linkquality"]),
+            "variables": list(row["variables"]),
+        })
+    return out
+
+
+def read_field_long(field_dir: Path) -> pd.DataFrame | None:
+    """수집 디렉터리의 세로 형식 자료를 그대로 읽는다(집계 전)."""
+    from ofdf.data import field as field_mod
+
+    files = sorted(Path(field_dir).glob("*.csv"))
+    if not files:
+        return None
+    parts = []
+    for path in files:
+        try:
+            parts.append(field_mod.read_field(path))
+        except (ValueError, KeyError):
+            continue
+    if not parts:
+        return None
+    return pd.concat(parts, ignore_index=True)
 
 
 def read_window(config: EdgeConfig) -> pd.DataFrame | None:
@@ -350,6 +414,7 @@ def run_once(
             "station": config.station, "now": now.isoformat(),
             "modelVersion": f"ofdf-weather-{__version__}", "mode": decision.mode,
             "forecastStatus": forecast_status,
+            "sensors": sensor_status(config),
             "environment": [
                 {"key": k, "name": k, "unit": "",
                  "value": round(float(observations.iloc[-1][k]), 2)}

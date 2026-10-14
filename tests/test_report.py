@@ -243,3 +243,26 @@ def test_report_refuses_results_without_action_unit_columns(tmp_path):
     result = build(tmp_path, tmp_path / "reports")
     assert result.returncode != 0
     assert "조치단위" in result.stderr and "README 3.13" in result.stderr
+
+
+def test_dashboard_shows_sensor_health():
+    """센서가 죽은 것을 자료가 끊기기 전에 보여야 한다.
+
+    배터리와 전파세기는 작물 위험과 무관하지만, 값이 사라진 뒤에 알면
+    그 사이 판단은 이미 비어 있었던 것이다.
+    """
+    page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    assert 'id="sensor-block"' in page
+    assert "renderSensors" in page
+    assert "SENSOR_STALE_MIN" in page and "BATTERY_LOW" in page
+
+
+def test_sensor_state_classes_do_not_collide_with_the_farm_chips():
+    """농가 화면의 .ok 는 가로 배치 칩이다. 센서 카드가 그 이름을 쓰면 눌린다.
+
+    실제로 한 번 겹쳐서 카드가 한 줄로 찌그러졌다.
+    """
+    page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    assert ".sensor.s-ok" in page and ".sensor.s-dead" in page
+    assert ".sensor.ok " not in page and ".sensor.dead " not in page
+    assert '"s-dead" : low ? "s-warn" : "s-ok"' in page

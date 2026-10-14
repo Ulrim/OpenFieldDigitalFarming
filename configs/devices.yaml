@@ -1,0 +1,66 @@
+# Zigbee 센서 설치 정보
+#
+# Zigbee2MQTT 의 friendly_name 을 키로 쓴다. 이름은 Z2M 웹UI 에서 바꾼 뒤
+# 여기에 같은 이름을 적으면 된다.
+#
+# **map 이 중요하다.** 같은 temperature 라도 어디에 달렸느냐에 따라 다른
+# 변수다 — 2m 마스트면 기온(t_air), 지상 10cm 면 초관부 온도(canopy_temp),
+# 흙에 꽂으면 지온(soil_temp). 서리 판단은 이 셋을 구분하지 못하면 성립하지
+# 않으므로, 뜻이 갈리는 필드는 기본값을 두지 않고 여기서 지정하게 했다.
+# 적지 않으면 그 값은 버려지고 수집 로그에 사유가 남는다.
+#
+# zone: mast | treatment | control | facility
+
+devices:
+  # ── 적용구간 ──────────────────────────────────────────────
+  canopy-treat-01:
+    zone: treatment
+    sensor_id: CN-01
+    note: 지상 10cm 초관부, 라디에이션 실드
+    map:
+      temperature: canopy_temp
+      humidity: rh
+
+  soil-treat-01:
+    zone: treatment
+    sensor_id: SOIL-T1
+    note: 깊이 10cm
+    map:
+      temperature: soil_temp        # 흙에 꽂혀 있으므로 지온이다
+
+  soil-treat-02:
+    zone: treatment
+    sensor_id: SOIL-T2
+    note: 깊이 20cm
+    map:
+      temperature: soil_temp
+
+  # ── 비교구간(대칭 위치) ───────────────────────────────────
+  canopy-ctrl-01:
+    zone: control
+    sensor_id: CN-C1
+    note: 지상 10cm 초관부, 적용구간과 대칭
+    map:
+      temperature: canopy_temp
+      humidity: rh
+
+  soil-ctrl-01:
+    zone: control
+    sensor_id: SOIL-C1
+    note: 깊이 10cm
+    map:
+      temperature: soil_temp
+
+  # ── 시설·안전 ─────────────────────────────────────────────
+  leak-pump-01:
+    zone: facility
+    sensor_id: LEAK-01
+    note: 펌프실 바닥
+    # water_leak 은 기본 매핑으로 enclosure_flood 가 된다
+
+  breaker-pump-01:
+    zone: facility
+    sensor_id: PUMP-01
+    note: 관수펌프 회로 차단기(전력계측)
+    map:
+      current: pump_current
