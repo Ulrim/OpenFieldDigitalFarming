@@ -202,3 +202,56 @@ def test_station_health_detects_humidity_ceiling():
     assert by_station.loc["정상지점", "rh_ceiling_ok"]
     assert not by_station.loc["포화지점", "rh_ceiling_ok"]
     assert "습도 상한 포화" in by_station.loc["포화지점", "verdict"]
+
+
+# ── 유량·상태의 시간 집계 ──────────────────────────────────────────
+
+def test_유량은_더하지_않는다():
+    """유량은 비율이다.
+
+    1분마다 잰 43 L/min 다섯 개를 더하면 216 L/min 이 된다. 단위는 L/min 인데
+    값은 아닌 상태가 되고, 그 숫자가 화면에 그대로 나간다. 구간에 흘러간
+    양을 묻는 자리는 적산 수량계(irrigation_volume)가 답한다.
+    """
+    assert field.TIME_AGGREGATION["irrigation_flow"] == "mean"
+    assert field.TIME_AGGREGATION["spray_flow"] == "mean"
+    assert field.TIME_AGGREGATION["irrigation_volume"] == "sum"
+
+    stamps = pd.date_range("2026-10-14 02:30", periods=5, freq="1min")
+    wide = pd.DataFrame({"facility.irrigation_flow": [43.0] * 5}, index=stamps)
+    assert field.resample(wide, "5min").iloc[0, 0] == pytest.approx(43.0)
+
+
+def test_상태는_평균이_아니라_최댓값으로_모은다():
+    """5분 동안 한 번이라도 열렸으면 '열렸다'가 그 구간의 사실이다.
+
+    제어응답 확인은 그것을 묻는다. 평균을 내면 0.4 가 나오는데, 밸브가
+    0.4 만큼 열린 적은 없다.
+    """
+    for variable in ("valve_state", "circuit_state", "aux_circuit_state"):
+        assert field.TIME_AGGREGATION[variable] == "max"
+
+    stamps = pd.date_range("2026-10-14 02:30", periods=5, freq="1min")
+    wide = pd.DataFrame({"facility.valve_state": [0.0, 0.0, 1.0, 1.0, 0.0]},
+                        index=stamps)
+    assert field.resample(wide, "5min").iloc[0, 0] == 1.0
+
+
+def test_서로_다른_회로는_같은_변수를_쓰지_않는다():
+    """관수펌프와 보조회로를 한 변수에 담으면 중앙값이 0.5 가 된다.
+
+    측정점 통합(:func:`reconcile_points`)은 '같은 것을 여러 점에서 재는'
+    경우를 위한 장치다. 서로 다른 회로는 그 경우가 아니다.
+    """
+    raw = pd.DataFrame({
+        "ts": pd.to_datetime(["2026-10-14 02:30"] * 2),
+        "zone": ["facility"] * 2,
+        "sensor_id": ["PUMP-01", "AUX-01"],
+        "variable": ["circuit_state", "aux_circuit_state"],
+        "value": [1.0, 0.0],
+    })
+    out = field.reconcile_points(raw)
+    values = dict(zip(out["variable"], out["value"]))
+    assert values["circuit_state"] == 1.0
+    assert values["aux_circuit_state"] == 0.0
+    assert all(out["n_points"] == 1)       # 서로를 합치지 않았다

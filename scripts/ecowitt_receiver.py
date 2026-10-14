@@ -49,6 +49,13 @@ class State:
         self.out_dir = Path(args.out)
         self.capture_dir = Path(args.capture) if args.capture else None
         self.rain = RainAccumulator()
+        self.gateway = None
+        self.channels: dict = {}
+        if args.devices and Path(args.devices).exists():
+            try:
+                self.gateway, self.channels = ecowitt.load_channels(args.devices)
+            except Exception as exc:
+                print(f"[경고] 설정을 읽지 못했다: {exc}", file=sys.stderr)
         self.seen_unknown: set[str] = set()
         self.reports = 0
         self.rows = 0
@@ -67,6 +74,7 @@ class State:
         rows = ecowitt.report_to_rows(
             body, zone=self.args.zone, sensor_id=self.args.sensor_id,
             rain=self.rain, unknown=unknown,
+            gateway=self.gateway, channels=self.channels,
         )
         for note in unknown:
             if note not in self.seen_unknown:
@@ -139,7 +147,9 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--port", type=int, default=8088)
     p.add_argument("--path", default=ecowitt.DEFAULT_PATH,
                    help="게이트웨이 설정의 Path 와 같아야 한다. '*' 면 아무 경로나 받는다")
-    p.add_argument("--zone", default=ZONE_MAST)
+    p.add_argument("--devices", default="configs/devices.yaml",
+                   help="설치 정보 YAML. ecowitt: 칸에서 게이트웨이·채널을 읽는다")
+    p.add_argument("--zone", default=ZONE_MAST, help="설정에 없을 때의 기본 구간")
     p.add_argument("--sensor-id", default="WS90-01")
     p.add_argument("--replay", default=None, help="저장된 기록(JSON Lines)을 읽는다")
     args = p.parse_args(argv)
@@ -156,7 +166,8 @@ def main(argv: list[str] | None = None) -> int:
             except (ValueError, KeyError):
                 continue
         frame = ecowitt.reports_to_frame(
-            bodies, zone=args.zone, sensor_id=args.sensor_id)
+            bodies, zone=args.zone, sensor_id=args.sensor_id,
+            gateway=state.gateway, channels=state.channels)
         if frame.empty:
             print("기록에서 읽은 행이 없다.", file=sys.stderr)
             return 1

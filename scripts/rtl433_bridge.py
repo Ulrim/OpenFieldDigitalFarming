@@ -59,10 +59,12 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("--out", default="data/field")
     p.add_argument("--capture", default="data/field/capture",
                    help="원본 줄 기록 디렉터리. 빈 문자열이면 남기지 않는다")
-    p.add_argument("--zone", default=ZONE_MAST)
+    p.add_argument("--devices", default="configs/devices.yaml",
+                   help="설치 정보 YAML. rf: 칸에서 구간·센서이름을 읽는다")
+    p.add_argument("--zone", default=ZONE_MAST, help="설정에 없을 때의 기본 구간")
     p.add_argument("--sensor-id", default="WS90-01")
-    p.add_argument("--models", default=",".join(DEFAULT_MODELS),
-                   help="받을 모델. 'all' 이면 모두")
+    p.add_argument("--models", default="",
+                   help="받을 모델. 비우면 설정의 rf: 칸, 'all' 이면 모두")
     p.add_argument("--replay", default=None)
     p.add_argument("--spawn", action="store_true",
                    help="rtl_433 을 직접 띄운다(기본은 표준입력으로 받는다)")
@@ -71,7 +73,25 @@ def main(argv: list[str] | None = None) -> int:
 
     out_dir = Path(args.out)
     capture_dir = Path(args.capture) if args.capture else None
-    wanted = None if args.models == "all" else set(args.models.split(","))
+
+    # 설정에 적힌 모델만 받는다. 433MHz 는 페어링이 없어서 **이웃집 온도계도
+    # 들어온다** — 수집 파일에 섞이면 품질관리가 통째로 흔들린다.
+    rf_devices = {}
+    if Path(args.devices).exists():
+        try:
+            rf_devices = rtl433.load_rf_devices(args.devices)
+        except Exception as exc:
+            print(f"[경고] 설정을 읽지 못했다: {exc}", file=sys.stderr)
+    if args.models == "all":
+        wanted = None
+    elif args.models:
+        wanted = set(args.models.split(","))
+    elif rf_devices:
+        wanted = {d.model for d in rf_devices.values()}
+    else:
+        wanted = set(DEFAULT_MODELS)
+    if wanted:
+        print(f"[대상] {', '.join(sorted(wanted))}")
 
     if args.replay:
         frame = rtl433.read_capture(args.replay, zone=args.zone,
@@ -129,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
             rows = rtl433.message_to_rows(
                 record, zone=args.zone, sensor_id=args.sensor_id,
                 rain=rain, unknown=unknown,
+                device=rtl433.match_device(record, rf_devices),
             )
             total += append_rows(out_dir, rows)
             for note in unknown:

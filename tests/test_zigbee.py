@@ -11,6 +11,8 @@ import json
 
 import pytest
 
+from ofdf.data import zigbee
+from ofdf.data.counter import CumulativeCounter
 from ofdf.data.zigbee import (
     AMBIGUOUS_FIELDS,
     Device,
@@ -202,3 +204,177 @@ def test_valve_body_temperature_is_explicitly_discarded():
     assert valve.map.get("temperature") == ""
     assert valve.variable_for("temperature") is None
     assert valve.variable_for("flow") == "irrigation_flow"
+
+
+# ── 상태값과 적산값 ────────────────────────────────────────────────
+#
+# 이 둘이 빠져 있던 것이 가장 큰 구멍이었다. 밸브와 차단기는 자기 상태를
+# 문자열로 보내는데 '숫자가 아니라서' 버려지고 있었다. 그러면 명령은 보냈는데
+# 실행됐는지 모르는 상태가 된다 — 공인시험 T-07 이 묻는 것이 바로 그것이다.
+
+FACILITY = {
+    "valve-treat-01": zigbee.Device(
+        name="valve-treat-01", zone="facility", sensor_id="VALVE-01",
+        map={"state": "valve_state", "flow": "irrigation_flow",
+             "water_consumed": "irrigation_volume", "temperature": ""},
+    ),
+    "breaker-pump-01": zigbee.Device(
+        name="breaker-pump-01", zone="facility", sensor_id="PUMP-01",
+        map={"state": "circuit_state", "current": "pump_current",
+             "power": "pump_power", "voltage": "line_voltage",
+             "energy": "pump_energy", "temperature": ""},
+    ),
+}
+
+
+def _values(rows):
+    return {r["variable"]: r["value"] for r in rows}
+
+
+def test_밸브_열림_상태를_받는다():
+    rows = zigbee.message_to_rows(
+        "zigbee2mqtt/valve-treat-01", {"state": "ON", "flow": 14.2}, FACILITY)
+    assert _values(rows)["valve_state"] == 1.0
+    assert _values(rows)["irrigation_flow"] == 14.2
+
+
+def test_밸브_닫힘_상태를_받는다():
+    rows = zigbee.message_to_rows(
+        "zigbee2mqtt/valve-treat-01", {"state": "OFF"}, FACILITY)
+    assert _values(rows)["valve_state"] == 0.0
+
+
+@pytest.mark.parametrize("word,expected", [
+    ("ON", 1.0), ("on", 1.0), ("OPEN", 1.0), ("opened", 1.0),
+    ("OFF", 0.0), ("close", 0.0), ("CLOSED", 0.0),
+    ("detected", 1.0), ("clear", 0.0), ("wet", 1.0), ("dry", 0.0),
+])
+def test_상태말을_대소문자_가리지_않고_읽는다(word, expected):
+    assert zigbee.to_number(word) == expected
+
+
+def test_모르는_상태말은_추측하지_않고_알린다():
+    """밸브 상태를 거꾸로 읽으면 관수했다고 기록하면서 작물은 마른다."""
+    unknown = []
+    rows = zigbee.message_to_rows(
+        "zigbee2mqtt/valve-treat-01", {"state": "부분개방"}, FACILITY,
+        unknown=unknown)
+    assert "valve_state" not in _values(rows)
+    assert any("모르는 상태값" in note for note in unknown)
+
+
+def test_참거짓도_받는다():
+    assert zigbee.to_number(True) == 1.0
+    assert zigbee.to_number(False) == 0.0
+
+
+def test_숫자를_문자열로_보내는_장치도_받는다():
+    assert zigbee.to_number("23.5") == 23.5
+
+
+def test_빈_문자열과_사전은_버린다():
+    assert zigbee.to_number("") is None
+    assert zigbee.to_number({"a": 1}) is None
+    assert zigbee.to_number(None) is None
+
+
+def test_적산_전력량은_구간_차분이_된다():
+    """적산값을 그대로 넣으면 5분 전력량이 설치 이후 총량으로 잡힌다."""
+    counter = CumulativeCounter()
+    first = zigbee.message_to_rows(
+        "zigbee2mqtt/breaker-pump-01", {"energy": 51.20}, FACILITY,
+        cumulative=counter)
+    second = zigbee.message_to_rows(
+        "zigbee2mqtt/breaker-pump-01", {"energy": 51.27}, FACILITY,
+        cumulative=counter)
+    assert _values(first)["pump_energy"] == 0.0        # 처음은 기준점
+    assert _values(second)["pump_energy"] == pytest.approx(0.07)
+
+
+def test_적산값이_줄면_그_구간은_0_이다():
+    """센서 교체·초기화. 음수 관수량은 물수지를 망가뜨린다."""
+    counter = CumulativeCounter()
+    for total in (120.0, 141.5):
+        zigbee.message_to_rows("zigbee2mqtt/valve-treat-01",
+                               {"water_consumed": total}, FACILITY,
+                               cumulative=counter)
+    rows = zigbee.message_to_rows("zigbee2mqtt/valve-treat-01",
+                                  {"water_consumed": 0.0}, FACILITY,
+                                  cumulative=counter)
+    assert _values(rows)["irrigation_volume"] == 0.0
+
+
+def test_장치가_둘이면_적산을_따로_센다():
+    counter = CumulativeCounter()
+    zigbee.message_to_rows("zigbee2mqtt/breaker-pump-01", {"energy": 100.0},
+                           FACILITY, cumulative=counter)
+    rows = zigbee.message_to_rows("zigbee2mqtt/valve-treat-01",
+                                  {"water_consumed": 5.0}, FACILITY,
+                                  cumulative=counter)
+    # 차단기의 100 이 밸브의 기준점이 되어 음수가 나오면 안 된다
+    assert _values(rows)["irrigation_volume"] == 0.0
+
+
+def test_설정이_버리라고_한_필드는_다시_묻지_않는다():
+    """밸브 몸체 온도는 작물 판단에 쓰지 않는다고 설정이 이미 말했다."""
+    unknown = []
+    rows = zigbee.message_to_rows(
+        "zigbee2mqtt/valve-treat-01", {"temperature": 21.0}, FACILITY,
+        unknown=unknown)
+    assert rows == []
+    assert unknown == []
+
+
+def test_차단기_설정값은_경고를_띄우지_않는다():
+    """설정 임계치까지 '매핑 없음'으로 찍으면 정작 봐야 할 경고가 묻힌다."""
+    unknown = []
+    zigbee.message_to_rows(
+        "zigbee2mqtt/breaker-pump-01",
+        {"over_current_threshold": 63, "power_on_behavior": "previous",
+         "current": 4.1},
+        FACILITY, unknown=unknown)
+    assert unknown == []
+
+
+def test_설비_진단값을_남긴다():
+    """차단기 과열은 화재 전조다. 작물 변수와 별도로 남긴다."""
+    rows = zigbee.message_to_rows(
+        "zigbee2mqtt/breaker-pump-01",
+        {"device_temperature": 38, "power_factor": 98, "ac_frequency": 60},
+        FACILITY)
+    values = _values(rows)
+    assert values["device_temp"] == 38.0
+    assert values["power_factor"] == 98.0
+    assert values["ac_frequency"] == 60.0
+
+
+def test_모르는_필드는_값까지_적어_알린다():
+    unknown = []
+    zigbee.message_to_rows("zigbee2mqtt/valve-treat-01", {"무엇인가": 7},
+                           FACILITY, unknown=unknown)
+    assert any("무엇인가" in note and "7" in note for note in unknown)
+
+
+def test_화면용_상태가_말로_나온다():
+    """0.5 는 '밸브가 지금 열려 있나'의 답이 아니다. 마지막 값을 말로 쓴다."""
+    frame = zigbee.rows_to_frame([
+        {"ts": "2026-10-14T05:00:00", "zone": "facility", "sensor_id": "VALVE-01",
+         "variable": "valve_state", "value": 0.0, "unit": "bool", "quality": "ok"},
+        {"ts": "2026-10-14T05:05:00", "zone": "facility", "sensor_id": "VALVE-01",
+         "variable": "valve_state", "value": 1.0, "unit": "bool", "quality": "ok"},
+    ])
+    status = zigbee.device_status(frame, FACILITY)
+    states = status.iloc[0]["states"]
+    assert {"name": "관수 밸브", "on": True, "text": "열림"} in states
+
+
+def test_Zigbee가_아닌_장치도_센서_상태에_나온다():
+    """433MHz 장치가 화면에서 빠지면 기상 마스트가 죽어도 아무도 모른다."""
+    frame = zigbee.rows_to_frame([
+        {"ts": "2026-10-14T05:00:00", "zone": "mast", "sensor_id": "WS90-01",
+         "variable": "t_air", "value": 5.0, "unit": "degC", "quality": "ok"},
+    ])
+    status = zigbee.device_status(
+        frame, {}, extra={"WS90-01": ("mast", "폴대 상단 2m")})
+    assert status.iloc[0]["note"] == "폴대 상단 2m"
+    assert status.iloc[0]["zone"] == "mast"

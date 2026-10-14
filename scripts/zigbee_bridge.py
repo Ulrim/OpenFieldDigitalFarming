@@ -29,6 +29,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
 from ofdf.data import zigbee  # noqa: E402
+from ofdf.data.counter import CumulativeCounter  # noqa: E402
 
 #: 수집 파일을 하루 단위로 나눈다. 한 파일이 끝없이 커지지 않게 한다.
 FILE_PATTERN = "zigbee_%Y%m%d.csv"
@@ -102,6 +103,9 @@ def run_subscribe(args, devices, writer: Writer) -> int:
         return 2
 
     unknown_seen: set[str] = set()
+    # 적산값(전력량·관수량)은 메시지 사이에 이어서 세야 한다. 메시지마다
+    # 새로 만들면 매번 '처음 본 값'이 되어 구간 증가분이 늘 0 이 된다.
+    counter = CumulativeCounter()
 
     def on_connect(client, userdata, flags, rc, properties=None):
         topic = f"{args.base_topic}/+"
@@ -116,6 +120,7 @@ def run_subscribe(args, devices, writer: Writer) -> int:
             rows = zigbee.message_to_rows(
                 message.topic, payload, devices,
                 base_topic=args.base_topic, unknown=unknown,
+                cumulative=counter,
             )
         except ValueError:
             return                      # JSON 이 아닌 메시지는 넘긴다

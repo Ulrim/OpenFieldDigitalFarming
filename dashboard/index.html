@@ -180,6 +180,18 @@ body {
 .sensor .bars b { font-family: var(--font-num); font-size: 13px; font-weight: 600;
   font-variant-numeric: tabular-nums; }
 .sensor .bars span { font-size: 11.5px; color: var(--ink-3); display: block; }
+/* 구동부 되읽기 값. '열어라'를 보냈는데 정말 열렸는지는 이것으로만
+   확인된다 — 지시와 달리 장치가 스스로 보고한 사실이다. */
+.sensor .states { display: flex; gap: 6px; margin-top: 8px; flex-wrap: wrap; }
+.sensor .st {
+  font-size: 11.5px; font-weight: 600; border-radius: 999px;
+  padding: 2px 8px; border: 1px solid var(--line); color: var(--ink-3);
+  white-space: nowrap;
+}
+/* 색만으로 구분하지 않는다. 켜짐·꺼짐은 '열림'·'닫힘' 이라는 말로 적고,
+   테두리는 그것을 거드는 역할만 한다 — 색약이거나 햇빛에 화면이 씻겨도
+   읽혀야 한다. */
+.sensor .st.on { border-color: var(--good); color: var(--good-ink); font-weight: 700; }
 .sensor .state { font-size: 12.5px; font-weight: 600; margin-top: 7px; }
 .sensor.s-dead .state { color: var(--critical-ink); }
 .sensor.s-warn .state { color: var(--warning-ink); }
@@ -675,17 +687,30 @@ function renderSensors(list) {
       s.battery !== null ? `<div><b>${Math.round(s.battery)}%</b><span>배터리</span></div>`
       : s.supercap != null ? `<div><b>${s.supercap.toFixed(1)}V</b><span>슈퍼캡</span></div>`
       : s.batteryMv != null ? `<div><b>${(s.batteryMv/1000).toFixed(2)}V</b><span>배터리</span></div>`
+      : s.batteryV != null ? `<div><b>${s.batteryV.toFixed(2)}V</b><span>배터리</span></div>`
+      : "";
+    /* 전파세기 표시도 경로마다 다르다. Zigbee 는 linkquality(0~255),
+       433MHz 는 RSSI(dB, 음수)로 온다. 둘을 한 칸에 섞으면 숫자의 뜻이
+       달라지므로 단위를 붙여 구분한다. */
+    const signal =
+      s.link !== null ? `<div><b>${Math.round(s.link)}</b><span>전파</span></div>`
+      : s.rssi != null ? `<div><b>${s.rssi.toFixed(0)}dB</b><span>수신세기</span></div>`
       : "";
     const bars = [
       power,
-      s.link !== null ? `<div><b>${Math.round(s.link)}</b><span>전파</span></div>` : "",
+      signal,
       `<div><b>${fmt(s.lastSeen)}</b><span>마지막 수신</span></div>`,
     ].join("");
+    /* 밸브 열림·회로 통전·침수 같은 값은 평균이 뜻을 잃는다. 지금 어떤
+       상태인지를 묻는 자리이므로 마지막 값을 말로 보여 준다. */
+    const states = (s.states || []).map((t) =>
+      `<span class="st${t.on ? " on" : ""}">${t.name} ${t.text}</span>`).join("");
     return `<div class="sensor ${cls}">
       <div class="top"><span class="nm">${s.sensorId}</span>
       <span class="zone">${PLAIN_ZONE[s.zone] || s.zone}</span></div>
       ${s.note ? `<div class="note">${s.note}</div>` : ""}
       <div class="bars">${bars}</div>
+      ${states ? `<div class="states">${states}</div>` : ""}
       <div class="state">${state}</div>
     </div>`;
   }).join("");

@@ -42,6 +42,8 @@ FIELD_VARIABLES: dict[str, tuple[str, float, float]] = {
     "rh": ("%", 0.0, 100.0),
     "solar": ("W/m2", 0.0, 2000.0),        # 마스트 사양 0~2,000 W/m²
     "rain": ("mm", 0.0, 50.0),             # 티핑 0.2mm, 1분 적산
+    #: 강우강도. 압전식(WS90)은 티핑버킷보다 강우 시작을 빨리 알려 준다.
+    "rain_rate": ("mm/h", 0.0, 300.0),
     "rain_detect": ("bool", 0.0, 1.0),
     "wind_speed": ("m/s", 0.0, 60.0),
     "wind_gust_1s": ("m/s", 0.0, 60.0),
@@ -53,6 +55,9 @@ FIELD_VARIABLES: dict[str, tuple[str, float, float]] = {
     #: 전력계측 차단기
     "pump_power": ("W", 0.0, 20000.0),
     "line_voltage": ("V", 0.0, 300.0),
+    #: 누적 전력량계의 구간 차분. 전류가 0 과 1 을 빠르게 오가는 짧은 가동도
+    #: 적분값에는 남으므로, 펌프가 '정말 돌았는지' 를 전류보다 확실히 말해 준다.
+    "pump_energy": ("kWh", 0.0, 1000.0),
     "canopy_temp": ("degC", -25.0, 50.0),  # 지상 10cm 초관부
     "leaf_wetness": ("ratio", 0.0, 1.0),   # 0~1 또는 0/1
     "soil_moisture": ("%", 0.0, 100.0),
@@ -64,9 +69,24 @@ FIELD_VARIABLES: dict[str, tuple[str, float, float]] = {
     "pump_current": ("A", 0.0, 60.0),
     "motor_current": ("A", 0.0, 60.0),
     "irrigation_flow": ("L/min", 0.0, 500.0),
+    #: 누적 수량계의 구간 차분. 유량(L/min)을 띄엄띄엄 재면 짧은 관수가
+    #: 통째로 빠지지만 적산 수량계는 놓치지 않는다.
+    "irrigation_volume": ("L", 0.0, 10000.0),
     "spray_flow": ("L/min", 0.0, 500.0),
     "enclosure_flood": ("bool", 0.0, 1.0),
     "emergency_stop": ("bool", 0.0, 1.0),
+    #: 구동부가 '명령대로 됐는지' 를 말해 주는 되읽기 값.
+    #: 지시(actions)와 달리 장치가 스스로 보고하는 실제 상태다.
+    "valve_state": ("bool", 0.0, 1.0),     # 0 닫힘 / 1 열림
+    "circuit_state": ("bool", 0.0, 1.0),   # 관수펌프 회로. 0 끊김 / 1 통전
+    #: 보조 회로(환기·난방)는 **다른 회로**다. 관수펌프와 같은 변수에 담으면
+    #: 구간 통합(:func:`reconcile_points`)이 둘의 중앙값을 내는데, 하나가
+    #: 켜지고 하나가 꺼져 있으면 0.5 가 된다 — 어느 쪽도 아닌 값이다.
+    #: 측정점 통합은 '같은 것을 여러 번 재는' 경우를 위한 장치이고, 서로
+    #: 다른 회로는 그 경우가 아니다.
+    "aux_circuit_state": ("bool", 0.0, 1.0),
+    "aux_power": ("W", 0.0, 20000.0),
+    "aux_energy": ("kWh", 0.0, 1000.0),
 }
 
 #: 구간 안에 여러 점이 설치된 변수를 합치는 방식.
@@ -76,6 +96,7 @@ POINT_AGGREGATION = "median"
 #: 시간 집계 방식. 강수는 적산, 돌풍은 최댓값, 나머지는 평균이다.
 TIME_AGGREGATION: dict[str, str] = {
     "rain": "sum",
+    "rain_rate": "max",
     "rain_detect": "max",
     "wind_gust_1s": "max",
     "wind_gust_3s": "max",
@@ -85,8 +106,20 @@ TIME_AGGREGATION: dict[str, str] = {
     "leaf_wetness": "mean",
     "emergency_stop": "max",
     "enclosure_flood": "max",
-    "irrigation_flow": "sum",
-    "spray_flow": "sum",
+    #: 유량은 **비율**이다. 더하면 안 된다 — 1분마다 잰 43 L/min 다섯 개를
+    #: 더하면 216 L/min 이 되어, 단위는 L/min 인데 값은 아니게 된다. 구간에
+    #: 흘러간 양을 묻는 자리는 적산 수량계(irrigation_volume)가 답한다.
+    "irrigation_flow": "mean",
+    "spray_flow": "mean",
+    "irrigation_volume": "sum",
+    "pump_energy": "sum",
+    "aux_energy": "sum",
+    "aux_power": "mean",
+    "aux_circuit_state": "max",
+    #: 상태값은 평균을 내면 뜻이 사라진다. 5분 동안 한 번이라도 열렸으면
+    #: '열렸다'가 그 구간의 사실이다 — 제어응답 확인은 그것을 묻는다.
+    "valve_state": "max",
+    "circuit_state": "max",
 }
 DEFAULT_TIME_AGGREGATION = "mean"
 

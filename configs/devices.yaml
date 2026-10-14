@@ -10,6 +10,18 @@
 # 않으므로, 뜻이 갈리는 필드는 기본값을 두지 않고 여기서 지정하게 했다.
 # 적지 않으면 그 값은 버려지고 수집 로그에 사유가 남는다.
 #
+# sends: 는 '기본 매핑이 맞는 필드'를 적는 자리다. 수집에는 영향이 없고,
+# 점검(python -m ofdf.cli sensors)이 '이 장치가 무엇을 보내는가'를 알기 위해
+# 쓴다. 적지 않아도 값은 들어온다.
+#
+# 칸이 셋이다.
+#   devices:  Zigbee2MQTT 로 들어오는 장치 (friendly_name 이 열쇠)
+#   rf:       433MHz 로 들어오는 장치 (rtl_433 의 model 또는 model/id 가 열쇠)
+#   ecowitt:  에코윗 게이트웨이와 거기 붙은 보조 채널
+#
+# 포장에 무엇이 달려 있는지를 한 파일에 모은다. 경로마다 따로 적으면
+# 한쪽만 고치는 날이 온다.
+#
 # zone: mast | treatment | control | facility
 #
 # ※ friendly_name(키)은 Zigbee2MQTT 웹UI 에서 장치를 페어링한 뒤 붙인 이름과
@@ -29,6 +41,7 @@ devices:
     map:
       temperature: canopy_temp     # 지상 10cm 이므로 기온이 아니다
       humidity: rh
+    sends: [battery, linkquality]
 
   # 지그비 스마트 투야 토양 수분·온도 센서
   # (최소주문 수량이 있으므로 실제 받은 대수에 맞춰 아래를 늘리거나 줄인다)
@@ -38,6 +51,7 @@ devices:
     note: 깊이 10cm
     map:
       temperature: soil_temp       # 흙에 꽂혀 있으므로 지온이다
+    sends: [soil_moisture, battery, linkquality]
 
   soil-treat-02:
     zone: treatment
@@ -45,6 +59,7 @@ devices:
     note: 깊이 20cm
     map:
       temperature: soil_temp
+    sends: [soil_moisture, battery, linkquality]
 
   # ── 비교구간 ──────────────────────────────────────────────
   soil-ctrl-01:
@@ -53,6 +68,7 @@ devices:
     note: 깊이 10cm · 적용구간과 대칭
     map:
       temperature: soil_temp
+    sends: [soil_moisture, battery, linkquality]
 
   # ── 시설·안전 ─────────────────────────────────────────────
   # Zigbee 누수 센서 (110dB 알람) ×1
@@ -61,6 +77,9 @@ devices:
     sensor_id: LEAK-01
     note: 펌프실 바닥 · 실내 전용(노지 설치는 강우 오검지)
     # water_leak 은 기본 매핑으로 enclosure_flood 가 된다
+    map:
+      tamper: tamper               # 뜯김 감지 — 센서가 치워졌는지 알려 준다
+    sends: [water_leak, battery, linkquality]
 
   # TUYA ZigBee 스마트 회로 차단기 1P 63A (전력계측) ×2
   #
@@ -71,18 +90,28 @@ devices:
     sensor_id: PUMP-01
     note: 관수펌프 회로 · 220V 분전반(전기공사 유자격자 시공)
     map:
+      state: circuit_state         # 통전 여부. 명령이 실행됐는지의 되읽기 값
       current: pump_current
       power: pump_power
       voltage: line_voltage        # 배터리 장치와 달리 선간전압(V)이다
+      energy: pump_energy          # 적산 전력량 -> 구간 차분. 짧은 가동도 남는다
+      temperature: ""              # 차단기 본체 온도. 작물 판단에 쓰지 않는다
+                                   # (과열은 device_temperature 로 따로 남는다)
 
+  # 보조 회로는 관수펌프와 **다른 회로**다. 같은 변수에 담으면 구간 통합이
+  # 둘의 중앙값을 내는데, 하나가 켜지고 하나가 꺼져 있으면 0.5 가 된다.
+  # 측정점 통합은 '같은 것을 여러 번 재는' 경우를 위한 장치다.
   breaker-aux-01:
     zone: facility
     sensor_id: AUX-01
     note: 보조 회로(환기·난방)
     map:
+      state: aux_circuit_state
       current: motor_current
-      power: pump_power
-      voltage: line_voltage
+      power: aux_power
+      voltage: line_voltage        # 같은 분전반 선간전압이라 이쪽은 공용이다
+      energy: aux_energy
+      temperature: ""
 
   # Zigbee Tuya 스마트 워터밸브 + 유량계 ×1
   #
@@ -93,19 +122,80 @@ devices:
     sensor_id: VALVE-01
     note: 적용구간 관수라인 DN20
     map:
+      state: valve_state           # 열림·닫힘. T-07 제어응답이 보는 값이다
       flow: irrigation_flow
+      water_consumed: irrigation_volume   # 적산 수량 -> 구간 차분
       temperature: ""              # 밸브 몸체 온도다. 작물 판단에 쓰지 않는다
+    sends: [battery, linkquality]
 
 # ── 433MHz (Zigbee 아님) ────────────────────────────────────
-# Ecowitt WS90 7-in-1 은 433MHz 전용 RF 라 위 목록에 들어가지 않는다.
-# rtl433_bridge.py 가 따로 받는다:
+# Ecowitt WS90 7-in-1 은 433MHz 전용 RF 라 Zigbee 로 들어오지 않는다.
+# 받는 길이 둘이고, **둘 중 하나만 있으면 된다.**
 #
-#   rtl_433 -f 433.92M -F json | python scripts/rtl433_bridge.py --out data/field
+#   (가) RTL-SDR 동글 + rtl_433            -> 아래 rf: 칸을 쓴다
+#        rtl_433 -f 433.92M -F json | python scripts/rtl433_bridge.py
+#
+#   (나) 에코윗 게이트웨이(GW1200 등) + 와이파이 -> 아래 ecowitt: 칸을 쓴다
+#        python scripts/ecowitt_receiver.py --port 8088
 #
 # 설치: 노지 개활지 폴대 상단(지상 2m 이상), 적용구간·비교구간 공용 외기 기준.
-# 주는 값: 기온·습도·풍속·순간최대풍속·풍향·강우·조도·UV·기압·배터리·슈퍼캡
 #
 # ※ WS90 의 순간최대풍속은 2초 간격으로 재어 **28초 창의 최댓값**이다.
 #   사업계획서가 말하는 3초 순간최대와 다른 통계량이라 wind_gust_window 로
 #   따로 받는다. 제어기는 참 3초 계측값이 있으면 그것을 먼저 쓰고, 없으면
 #   이 값으로 물러서되 조치 사유에 어느 쪽인지 적는다.
+rf:
+  Fineoffset-WS90:
+    zone: mast
+    sensor_id: WS90-01
+    note: Ecowitt WS90 · 433MHz · 폴대 상단 2m
+    # 같은 모델이 둘이면 'Fineoffset-WS90/12345' 처럼 id 를 붙여 구분한다.
+    # id 는 rtl_433 출력에서 확인한다.
+
+  # 토양수분(Fineoffset-WH51)을 추가로 사면 같은 동글이 그대로 받는다.
+  # 아래 두 줄의 주석을 풀고 id 를 적으면 된다 — 코드는 고치지 않는다.
+  # Fineoffset-WH51:
+  #   zone: control
+  #   sensor_id: SOIL-C2
+  #   note: 비교구간 깊이 10cm
+
+# ── 에코윗 게이트웨이(와이파이 경로) ────────────────────────
+# WS90 자체에는 와이파이가 없다. 게이트웨이가 433MHz 를 받아 같은 공유기
+# 안에서 라즈베리파이로 HTTP POST 한다. 바깥 인터넷을 거치지 않으므로
+# 통신이 끊겨도 돌고, 72시간 독립운전 요건과 어긋나지 않는다.
+#
+# 게이트웨이 설정: Customized 업로드 켜기 / Protocol Ecowitt /
+#                  Server 라즈베리파이 주소 / Path /data/report/ / Port 8088
+#
+# ※ **둘을 동시에 켜지 말 것.** 같은 WS90 을 두 경로로 받아 같은 센서이름으로
+#   쓰면 같은 비가 두 번 들어온다. 강수는 구간 적산이라 두 배가 되고, 그 값으로
+#   관수 판단이 돈다. 지금은 (가) RTL-SDR 경로를 기본으로 두었다 — 아래
+#   gateway: 칸은 주석 처리돼 있다. 게이트웨이로 가기로 하면 주석을 풀고
+#   위 rf: 칸의 Fineoffset-WS90 을 지운다.
+#   `python -m ofdf.cli sensors` 가 이 어긋남을 찾아 알려 준다.
+ecowitt:
+  # gateway:
+  #   zone: mast
+  #   sensor_id: WS90-01
+  #   note: 에코윗 게이트웨이 · WS90 중계 · 폴대 상단 2m
+
+  # 보조 채널. **번호는 센서 계열마다 따로 센다** — soilmoisture1 과
+  # leafwetness_ch1 과 temp1f 은 모두 '1번'이지만 서로 다른 장치다.
+  # 열쇠는 계열+번호: soil1 · tf1(지온 프로브) · leaf1 · th1(온습도)
+  #
+  # 아직 붙은 채널이 없다. 센서를 사서 게이트웨이에 페어링하면 아래처럼
+  # 한 칸 적는다 — 코드는 고치지 않는다.
+  channels: {}
+    # 엽면습윤(Ecowitt WH35) — 지금 없는 항목이다. 사서 붙이면 이것만 적으면 된다
+    # leaf1:
+    #   zone: treatment
+    #   sensor_id: LW-T1
+    #   note: 초관부 엽면 · 지상 20cm
+    #
+    # 비교구간 초관부 온도(WH31) — 범용 온습도계라 반드시 map 을 적어야 한다
+    # th1:
+    #   zone: control
+    #   sensor_id: CN-02
+    #   note: 비교구간 지상 10cm · 라디에이션 실드
+    #   map:
+    #     t_air: canopy_temp       # 지상 10cm 이므로 기온이 아니다

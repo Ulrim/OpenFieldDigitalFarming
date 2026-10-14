@@ -108,6 +108,16 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
                        help="구동부가 달린 장치를 쉼표로. 생략하면 설정파일, "
                             "그것도 없으면 전부 달린 것으로 본다")
         s.add_argument("--verbose", action="store_true")
+
+    # 모델 없이도 돌아야 한다. 센서를 달고 처음 확인하는 명령이기 때문이다.
+    chk = sub.add_parser("sensors", help="수집 범위 점검 — 어느 변수가 어느 경로로 들어오는지")
+    chk.add_argument("--devices", default="configs/devices.yaml")
+    chk.add_argument("--field", default="data/field",
+                     help="수집 디렉터리. 실제로 들어온 값을 '수신확인'으로 올린다")
+    chk.add_argument("--json", action="store_true", help="표 대신 JSON 으로")
+    chk.add_argument("--strict", action="store_true",
+                     help="장비없음 변수가 있으면 1 을 돌려준다(CI 용)")
+    chk.add_argument("--verbose", action="store_true")
     return p.parse_args(argv)
 
 
@@ -194,12 +204,11 @@ def sensor_status(config: EdgeConfig) -> list[dict]:
         from ofdf.data import zigbee
 
         devices = zigbee.load_devices(config.devices_path)
-        if not devices:
-            return []
         raw = read_field_long(config.field_dir)
         if raw is None or raw.empty:
             return []
-        status = zigbee.device_status(raw, devices)
+        status = zigbee.device_status(
+            raw, devices, extra=non_zigbee_devices(config.devices_path))
     except Exception as exc:                 # 화면 한 칸 때문에 판단이 멈추면 안 된다
         LOG.warning("센서 상태를 만들지 못했다: %s", exc)
         return []
@@ -222,9 +231,38 @@ def sensor_status(config: EdgeConfig) -> list[dict]:
                          else float(row["battery_mv"]),
             "supercap": None if pd.isna(row.get("supercap_v", float("nan")))
                         else float(row["supercap_v"]),
+            "batteryV": None if pd.isna(row.get("battery_v", float("nan")))
+                        else float(row["battery_v"]),
             "link": None if pd.isna(row["linkquality"]) else float(row["linkquality"]),
+            "rssi": None if pd.isna(row.get("rssi", float("nan")))
+                    else float(row["rssi"]),
             "variables": list(row["variables"]),
+            # 구동부 되읽기 값. '열어라'를 보냈는데 정말 열렸는지는 이것으로만
+            # 확인된다 — 지시(actions)와 달리 장치가 스스로 보고한 사실이다.
+            "states": list(row["states"]),
         })
+    return out
+
+
+def non_zigbee_devices(devices_path: Path) -> dict[str, tuple[str, str]]:
+    """433MHz·에코윗 장치의 ``{센서이름: (구간, 메모)}``.
+
+    이 장치들은 Zigbee 목록에 없다. 화면의 센서 상태 칸이 Zigbee 만 보면
+    기상 마스트가 조용히 죽어도 아무도 모른다.
+    """
+    from ofdf.data import ecowitt, rtl433
+
+    out: dict[str, tuple[str, str]] = {}
+    try:
+        for device in rtl433.load_rf_devices(devices_path).values():
+            out[device.sensor_id] = (device.zone, device.note)
+        gateway, channels = ecowitt.load_channels(devices_path)
+        if gateway is not None:
+            out.setdefault(gateway.sensor_id, (gateway.zone, gateway.note))
+        for channel in channels.values():
+            out[channel.sensor_id] = (channel.zone, channel.note)
+    except Exception as exc:                 # 설정이 깨져도 화면은 떠야 한다
+        LOG.warning("비 Zigbee 장치 목록을 읽지 못했다: %s", exc)
     return out
 
 
@@ -465,12 +503,64 @@ def run_once(
     return True
 
 
+def run_sensors(args: argparse.Namespace) -> int:
+    """수집 범위를 점검해 보여 준다.
+
+    '모든 센서 데이터를 받는다'는 말은 확인할 수 있어야 한다. 센서를 달고
+    화면에 뭔가 나오는 것을 보고 끝내면, 빠진 변수는 비가 오는 날이나 서리가
+    내리는 날에야 드러난다. 그때는 이미 늦다.
+    """
+    import json as json_mod
+
+    from ofdf.data import coverage as coverage_mod
+
+    observed = None
+    field_dir = Path(args.field)
+    if field_dir.exists():
+        observed = read_field_long(field_dir)
+
+    frame = coverage_mod.coverage(args.devices, observed=observed)
+
+    if args.json:
+        records = []
+        for _, row in frame.iterrows():
+            last = row["last_seen"]
+            records.append({
+                "variable": row["variable"], "unit": row["unit"],
+                "status": row["status"], "paths": list(row["paths"]),
+                "note": row["note"], "rows": int(row["rows"]),
+                "lastSeen": None if pd.isna(last) else pd.Timestamp(last).isoformat(),
+            })
+        print(json_mod.dumps(
+            {"summary": coverage_mod.summary(frame), "variables": records,
+             "conflicts": coverage_mod.conflicts(args.devices)},
+            ensure_ascii=False, indent=2))
+    else:
+        print(coverage_mod.format_report(frame))
+        if observed is None:
+            print("수집 디렉터리가 비어 있다. 브리지를 띄우면 '수신확인'이 채워진다.")
+
+    problems = coverage_mod.conflicts(args.devices)
+    if problems and not args.json:
+        print("[설정 확인]")
+        for note in problems:
+            print(f"  · {note}")
+        print()
+
+    if args.strict and ((frame["status"] == "장비없음").any() or problems):
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
     logging.basicConfig(
         level=logging.DEBUG if args.verbose else logging.INFO,
         format="%(asctime)s %(levelname)s %(message)s",
     )
+    if args.command == "sensors":
+        return run_sensors(args)
+
     config = load_config(args)
 
     models = load_models(config.model_dir)
