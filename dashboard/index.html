@@ -448,7 +448,7 @@ const PLAIN_ZONE = {
 const PLAIN_NOW = [
   ["t_air", "기온", "℃"], ["canopy_temp", "잎 높이 온도", "℃"],
   ["rh", "습도", "%"], ["wind_speed", "바람", "m/s"],
-  ["soil_index", "흙 수분", ""], ["rain", "비", "mm"],
+  ["soil_moisture|soil_index", "흙 수분", ""], ["rain", "비", "mm"],
 ];
 
 function plainAction(a) {
@@ -467,7 +467,9 @@ function plainAction(a) {
 function plainWhy(risk, env, judgement) {
   const get = (k) => (env.find((e) => e.key === k) || {}).value;
   const t = get("t_air"), c = get("canopy_temp"), w = get("wind_speed"),
-        h = get("rh"), s = get("soil_index"), wet = get("leaf_wetness");
+        h = get("rh"), wet = get("leaf_wetness");
+  // 판단근거 문장도 실측을 먼저 쓴다
+  const s = get("soil_moisture") ?? get("soil_index");
   if (risk === "frost")
     return `잎 높이 온도가 <b>${c}℃</b>까지 내려갔습니다. 바람이 <b>${w}m/s</b>로 거의 없어 새벽에 더 떨어집니다.`;
   if (risk === "heat_dry")
@@ -614,8 +616,11 @@ function renderFarm(d) {
   }
 
   const value = (k) => (d.environment.find((e) => e.key === k) || {}).value;
+  /* 'a|b' 는 a 가 있으면 a, 없으면 b 다. 센서 실측(soil_moisture)이
+     있으면 그것을 쓰고, 없을 때만 대리지표(soil_index)로 간다 —
+     센서를 달아 놓고 추정값을 보여주면 안 된다. */
   $("now-row").innerHTML = PLAIN_NOW.map(([k, name, unit]) => {
-    const v = value(k);
+    const v = k.split("|").map(value).find((x) => x !== undefined && x !== null);
     if (v === undefined || v === null) return "";
     return `<div class="now"><dt>${name}</dt><dd>${v}${unit ? `<span>${unit}</span>` : ""}</dd></div>`;
   }).join("");

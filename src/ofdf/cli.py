@@ -410,7 +410,7 @@ def run_once(
     journal.append(record_from_decision(
         now.to_pydatetime(), config.station, f"ofdf-weather-{__version__}",
         {k: float(observations.iloc[-1][k])
-         for k in ("t_air", "rh", "canopy_temp", "soil_index")
+         for k in ("t_air", "rh", "canopy_temp", "soil_moisture", "soil_index")
          if k in observations.columns and pd.notna(observations.iloc[-1][k])},
         judgements, decision,
     ))
@@ -433,8 +433,12 @@ def run_once(
             "environment": [
                 {"key": k, "name": k, "unit": "",
                  "value": round(float(observations.iloc[-1][k]), 2)}
+                # soil_moisture 는 센서 실측, soil_index 는 물수지 대리지표다.
+                # 둘 다 보내고 화면이 실측을 먼저 쓴다 — 센서를 달아 놓고
+                # 추정값을 보여주면 안 된다.
                 for k in ("t_air", "canopy_temp", "rh", "leaf_wetness",
-                          "solar_w", "rain", "soil_index", "wind_speed")
+                          "solar_w", "rain", "soil_moisture", "soil_index",
+                          "wind_speed")
                 if k in observations.columns and pd.notna(observations.iloc[-1][k])
             ],
             "cards": [
@@ -480,8 +484,12 @@ def main(argv: list[str] | None = None) -> int:
     if not models:
         LOG.error("모델이 하나도 없다: %s", config.model_dir)
         return 1
-    LOG.info("ofdf %s · 모델 %d개 · 구간 '%s' · 주기 %d초",
-             __version__, len(models), config.zone, config.period)
+    # models 는 {시계: {위험유형: 모델}} 이라 len() 은 시계 수다. 모델 수를
+    # 묻는 자리이므로 실제 개수를 센다.
+    LOG.info("ofdf %s · 모델 %d개(시계 %s) · 구간 '%s' · 주기 %d초",
+             __version__, sum(len(b) for b in models.values()),
+             "·".join(f"{h}h" for h in sorted(models)),
+             config.zone, config.period)
 
     journal = Journal(config.journal_path)
 

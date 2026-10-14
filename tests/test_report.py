@@ -266,3 +266,18 @@ def test_sensor_state_classes_do_not_collide_with_the_farm_chips():
     assert ".sensor.s-ok" in page and ".sensor.s-dead" in page
     assert ".sensor.ok " not in page and ".sensor.dead " not in page
     assert '"s-dead" : low ? "s-warn" : "s-ok"' in page
+
+
+def test_screen_prefers_measured_soil_moisture_over_the_proxy():
+    """센서를 달아 놓고 추정값을 보여주면 안 된다.
+
+    soil_moisture 는 센서 실측이고 soil_index 는 물수지 대리지표다.
+    둘 다 화면으로 가되 실측이 있으면 그것을 쓴다.
+    """
+    page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
+    assert '"soil_moisture|soil_index"' in page
+    assert 'k.split("|").map(value).find(' in page
+    assert 'get("soil_moisture") ?? get("soil_index")' in page
+
+    cli = (ROOT / "src" / "ofdf" / "cli.py").read_text(encoding="utf-8")
+    assert '"soil_moisture", "soil_index"' in cli, "둘 다 화면으로 보내야 한다"
