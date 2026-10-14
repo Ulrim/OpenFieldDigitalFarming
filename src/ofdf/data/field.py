@@ -45,7 +45,14 @@ FIELD_VARIABLES: dict[str, tuple[str, float, float]] = {
     "rain_detect": ("bool", 0.0, 1.0),
     "wind_speed": ("m/s", 0.0, 60.0),
     "wind_gust_1s": ("m/s", 0.0, 60.0),
-    "wind_gust_3s": ("m/s", 0.0, 60.0),    # 강풍 안전규칙 기준값
+    "wind_gust_3s": ("m/s", 0.0, 60.0),    # 강풍 안전규칙 기준값(참 3초 계측)
+    #: WS90 이 주는 28초 창 최댓값. 3초 순간최대와 **다른 통계량**이라 이름을
+    #: 따로 둔다. 참 3초 계측값이 없을 때만 대신 쓴다.
+    "wind_gust_window": ("m/s", 0.0, 60.0),
+    "wind_dir": ("deg", 0.0, 360.0),
+    #: 전력계측 차단기
+    "pump_power": ("W", 0.0, 20000.0),
+    "line_voltage": ("V", 0.0, 300.0),
     "canopy_temp": ("degC", -25.0, 50.0),  # 지상 10cm 초관부
     "leaf_wetness": ("ratio", 0.0, 1.0),   # 0~1 또는 0/1
     "soil_moisture": ("%", 0.0, 100.0),
@@ -72,6 +79,8 @@ TIME_AGGREGATION: dict[str, str] = {
     "rain_detect": "max",
     "wind_gust_1s": "max",
     "wind_gust_3s": "max",
+    "wind_gust_window": "max",
+    "pump_power": "mean",
     "wind_speed": "mean",
     "leaf_wetness": "mean",
     "emergency_stop": "max",

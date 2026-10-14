@@ -64,7 +64,11 @@ class Action:
 class SensorState:
     """현장 즉응규칙(L1)이 보는 실측값."""
 
-    gust_3s: float | None = None        # 3초 순간최대풍속 m/s
+    gust_3s: float | None = None        # 순간최대풍속 m/s
+    #: 그 값이 어느 계측에서 왔는지. 사유 문구에 그대로 들어간다.
+    #: WS90 은 2초 간격으로 재어 28초 창의 최댓값을 주므로 사업계획서가
+    #: 말하는 3초 순간최대와 다른 통계량이다. 그것을 숨기지 않는다.
+    gust_source: str = "3초 순간최대"
     rain_detected: bool = False
     soil_above_limit: bool = False      # 토양수분 농가 상한 초과
     spraying: bool = False              # 살수 가동 중
@@ -214,13 +218,13 @@ def field_rule_actions(sensors: SensorState) -> list[Action]:
     if gust is not None:
         if gust >= 14.0:
             actions.append(Action("전 구동부", "경보·구동 잠금", Layer.FIELD_RULE,
-                                  f"3초 순간최대풍속 {gust:.1f}m/s — 현장 확인 후 수동 해제"))
+                                  f"{sensors.gust_source}풍속 {gust:.1f}m/s — 현장 확인 후 수동 해제"))
         if gust >= 9.0:
             actions.append(Action("차광막·피복", "즉시 완전 회수(5분 이내)", Layer.FIELD_RULE,
-                                  f"3초 순간최대풍속 {gust:.1f}m/s"))
+                                  f"{sensors.gust_source}풍속 {gust:.1f}m/s"))
         elif gust >= 7.0:
             actions.append(Action("차광막·피복", "전개 금지", Layer.FIELD_RULE,
-                                  f"3초 순간최대풍속 {gust:.1f}m/s"))
+                                  f"{sensors.gust_source}풍속 {gust:.1f}m/s"))
 
     if sensors.rain_detected:
         actions.append(Action("관수밸브", "관수 즉시 중단", Layer.FIELD_RULE, "강우 감지"))

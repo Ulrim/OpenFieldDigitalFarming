@@ -52,7 +52,10 @@ Z2M_DEFAULT_MAP: dict[str, str] = {
     "rain": "rain",
     "leaf_wetness": "leaf_wetness",
     "current": "pump_current",
-    "pressure": "pressure",
+    "power": "pump_power",
+    "voltage_rms": "line_voltage",
+    "flow": "irrigation_flow",
+    "water_flow": "irrigation_flow",
 }
 
 #: 뜻이 설치 위치로 갈리는 필드. 설정에 매핑이 없으면 버리고 경고한다.
@@ -61,6 +64,9 @@ AMBIGUOUS_FIELDS = frozenset({"temperature", "humidity"})
 #: 작물 위험 판단에는 안 쓰지만 통신·전원 상태로 남기는 필드.
 DIAGNOSTIC_FIELDS: dict[str, str] = {
     "battery": "battery_pct",
+    #: 배터리 장치의 voltage 는 배터리 전압(mV)이다. 전력계측 차단기의
+    #: voltage 는 선간전압(V)이라 뜻이 다르므로, 그런 장치는 설정에서
+    #: ``voltage: line_voltage`` 로 지정한다.
     "voltage": "battery_mv",
     "linkquality": "linkquality",
 }
@@ -244,11 +250,16 @@ def device_status(frame: pd.DataFrame, devices: dict[str, Device]) -> pd.DataFra
     """
     if frame.empty:
         return pd.DataFrame(columns=["sensor_id", "zone", "note", "last_seen",
-                                     "battery_pct", "linkquality", "variables"])
+                                     "battery_pct", "battery_mv", "supercap_v",
+                                     "linkquality", "variables"])
     by_id = {d.sensor_id: d for d in devices.values()}
+    #: 433MHz 로 들어오는 장치는 Zigbee 장치 목록에 없다. 화면에서 빠지면
+    #: 기상 마스트가 죽어도 아무도 모른다.
+    rf_notes = {"WS90-01": ("mast", "Ecowitt WS90 · 433MHz · 폴대 상단 2m")}
     out = []
     for sensor_id, part in frame.groupby("sensor_id"):
         device = by_id.get(str(sensor_id))
+        rf = rf_notes.get(str(sensor_id))
         latest = part.sort_values("ts").groupby("variable")["value"].last()
         measured = sorted(
             v for v in latest.index
@@ -256,10 +267,12 @@ def device_status(frame: pd.DataFrame, devices: dict[str, Device]) -> pd.DataFra
         )
         out.append({
             "sensor_id": sensor_id,
-            "zone": device.zone if device else "",
-            "note": device.note if device else "",
+            "zone": device.zone if device else (rf[0] if rf else ""),
+            "note": device.note if device else (rf[1] if rf else ""),
             "last_seen": part["ts"].max(),
             "battery_pct": float(latest.get("battery_pct", float("nan"))),
+            "battery_mv": float(latest.get("battery_mv", float("nan"))),
+            "supercap_v": float(latest.get("supercap_v", float("nan"))),
             "linkquality": float(latest.get("linkquality", float("nan"))),
             "variables": measured,
         })

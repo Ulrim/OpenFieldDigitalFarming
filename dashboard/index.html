@@ -645,6 +645,9 @@ function renderFarm(d) {
    것이므로, 농가 화면에 함께 둔다. */
 const SENSOR_STALE_MIN = 30;     // 이만큼 소식이 없으면 끊긴 것으로 본다
 const BATTERY_LOW = 20;          // 교체를 알릴 잔량(%)
+/* WS90 은 태양광 슈퍼캡으로 돈다. 흐린 날이 이어지면 전압이 떨어지면서
+   송신이 끊긴다. 끊긴 뒤가 아니라 떨어지는 중에 보여야 한다. */
+const SUPERCAP_LOW = 2.6;
 
 function renderSensors(list) {
   const block = $("sensor-block");
@@ -653,13 +656,23 @@ function renderSensors(list) {
 
   $("sensors").innerHTML = list.map((s) => {
     const dead = s.minutesAgo >= SENSOR_STALE_MIN;
-    const low = s.battery !== null && s.battery <= BATTERY_LOW;
+    const low = (s.battery !== null && s.battery <= BATTERY_LOW)
+      || (s.supercap != null && s.supercap <= SUPERCAP_LOW);
     const cls = dead ? "s-dead" : low ? "s-warn" : "s-ok";
     const state = dead
       ? `${Math.round(s.minutesAgo)}분째 소식 없음 — 확인 필요`
-      : low ? "배터리 곧 교체" : "정상";
+      : low ? (s.supercap != null ? "충전 부족 — 일조 확인" : "배터리 곧 교체")
+      : "정상";
+    /* 배터리 표시가 장치마다 다르다. Zigbee 센서는 %, WS90 은 전압으로
+       준다. 태양광 슈퍼캡이 비어 가는 것이 송신이 끊기기 전의 신호라
+       그쪽도 보여야 한다. */
+    const power =
+      s.battery !== null ? `<div><b>${Math.round(s.battery)}%</b><span>배터리</span></div>`
+      : s.supercap != null ? `<div><b>${s.supercap.toFixed(1)}V</b><span>슈퍼캡</span></div>`
+      : s.batteryMv != null ? `<div><b>${(s.batteryMv/1000).toFixed(2)}V</b><span>배터리</span></div>`
+      : "";
     const bars = [
-      s.battery !== null ? `<div><b>${Math.round(s.battery)}%</b><span>배터리</span></div>` : "",
+      power,
       s.link !== null ? `<div><b>${Math.round(s.link)}</b><span>전파</span></div>` : "",
       `<div><b>${fmt(s.lastSeen)}</b><span>마지막 수신</span></div>`,
     ].join("");

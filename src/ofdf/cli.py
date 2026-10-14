@@ -216,6 +216,12 @@ def sensor_status(config: EdgeConfig) -> list[dict]:
             "lastSeen": last.isoformat(),
             "minutesAgo": round(minutes, 1),
             "battery": None if pd.isna(row["battery_pct"]) else float(row["battery_pct"]),
+            # WS90 은 배터리를 % 가 아니라 전압으로 준다. 태양광 슈퍼캡이
+            # 비어 가는 것이 송신이 끊기기 전의 신호다.
+            "batteryMv": None if pd.isna(row.get("battery_mv", float("nan")))
+                         else float(row["battery_mv"]),
+            "supercap": None if pd.isna(row.get("supercap_v", float("nan")))
+                        else float(row["supercap_v"]),
             "link": None if pd.isna(row["linkquality"]) else float(row["linkquality"]),
             "variables": list(row["variables"]),
         })
@@ -327,11 +333,20 @@ def sensors_from(features: pd.DataFrame, now: pd.Timestamp) -> SensorState:
         got = last.get(name)
         return default if got is None or pd.isna(got) else float(got)
 
-    # 3초 순간최대풍속은 풍속계가 직접 준다. 없으면 강풍 판정을 하지 않는다
-    # (평균 풍속으로는 순간최대 기준을 판정할 수 없다).
+    # 강풍 판정은 순간최대풍속으로만 한다. 평균 풍속으로는 판정할 수 없다.
+    #
+    # 참 3초 계측값이 있으면 그것을 쓰고, 없으면 WS90 의 28초 창 최댓값으로
+    # 물러선다. 둘은 **다른 통계량**이라 — 28초 창 값이 참 순간최대보다
+    # 낮게 나올 수 있다 — 어느 쪽을 썼는지 조치 사유에 적는다. 농가 화면이
+    # '3초 순간최대'라고 적는데 실제로는 28초 창 값인 상태를 막는다.
     gust = last.get("wind_gust_3s")
+    gust_source = "3초 순간최대"
+    if gust is None or pd.isna(gust):
+        gust = last.get("wind_gust_window")
+        gust_source = "순간최대(28초 창)"
     return SensorState(
         gust_3s=None if gust is None or pd.isna(gust) else float(gust),
+        gust_source=gust_source,
         rain_detected=value("rain") > 0 or value("rain_detect") > 0.5,
         soil_above_limit=value("soil_moisture", -1) >= 0 and value("soil_moisture") >= 90,
         hour=int(now.hour),

@@ -153,14 +153,52 @@ def test_device_status_surfaces_a_quietly_dead_sensor():
     assert row["last_seen"] == NOW + dt.timedelta(minutes=10)
 
 
-def test_shipped_device_config_is_loadable_and_maps_canopy():
-    """저장소에 든 설정 예시가 실제로 읽히고, 초관부가 지정돼 있어야 한다."""
+def test_shipped_device_config_matches_what_was_bought():
+    """저장소의 설정이 실제 구매분과 맞아야 한다.
+
+    뜻이 갈리는 temperature 는 장치마다 지정돼 있어야 한다. 하나라도
+    비어 있으면 그 값은 버려지고 판단이 조용히 어긋난다.
+    """
     from pathlib import Path
 
     devices = load_devices(Path(__file__).resolve().parents[1] / "configs" / "devices.yaml")
     assert devices, "장치가 비어 있다"
-    canopy_devices = [d for d in devices.values()
-                      if d.map.get("temperature") == "canopy_temp"]
-    assert canopy_devices, "초관부 온도로 지정된 장치가 없다"
-    # 적용구간과 비교구간에 대칭으로 있어야 한다
-    assert {d.zone for d in canopy_devices} >= {"treatment", "control"}
+
+    # temperature 를 내보내는 장치는 모두 어느 변수인지 적혀 있어야 한다
+    soil = [d for d in devices.values() if d.sensor_id.startswith("SOIL")]
+    assert soil, "토양 센서가 없다"
+    assert all(d.map.get("temperature") == "soil_temp" for d in soil), \
+        "토양 센서의 temperature 는 지온이다"
+
+    canopy = [d for d in devices.values()
+              if d.map.get("temperature") == "canopy_temp"]
+    assert canopy, "초관부 온도로 지정된 장치가 없다"
+    assert {d.zone for d in canopy} == {"treatment"}, (
+        "온습도 센서 구매분이 1대라 적용구간에만 있다. "
+        "비교구간에도 달게 되면 이 기대값을 함께 고친다"
+    )
+
+
+def test_metering_breaker_voltage_is_line_voltage_not_battery():
+    """배터리 장치의 voltage 는 mV, 차단기의 voltage 는 선간전압(V)이다.
+
+    기본 매핑은 배터리 쪽이므로 차단기는 설정에서 덮어야 한다. 안 덮으면
+    220V 가 배터리 전압 220mV 로 기록된다.
+    """
+    from pathlib import Path
+
+    devices = load_devices(Path(__file__).resolve().parents[1] / "configs" / "devices.yaml")
+    breakers = [d for d in devices.values() if d.map.get("current")]
+    assert breakers, "전력계측 차단기가 없다"
+    assert all(d.map.get("voltage") == "line_voltage" for d in breakers)
+
+
+def test_valve_body_temperature_is_explicitly_discarded():
+    """밸브 몸체 온도는 작물 판단에 쓰지 않는다. 빈 값으로 버린다고 적는다."""
+    from pathlib import Path
+
+    devices = load_devices(Path(__file__).resolve().parents[1] / "configs" / "devices.yaml")
+    valve = next(d for d in devices.values() if d.sensor_id == "VALVE-01")
+    assert valve.map.get("temperature") == ""
+    assert valve.variable_for("temperature") is None
+    assert valve.variable_for("flow") == "irrigation_flow"
