@@ -7,6 +7,8 @@
 
 from __future__ import annotations
 
+import json
+
 import pandas as pd
 import pytest
 
@@ -200,3 +202,56 @@ def test_기본매핑으로_안_들어오는_변수는_전부_설명이_있다()
         assert variable in coverage.MISSING_HARDWARE, (
             f"{variable}: 받을 경로가 없는데 왜 없는지 적혀 있지 않다"
         )
+
+
+def test_측정점_수를_구간별로_센다(tmp_path):
+    """1점은 그 센서가 죽으면 판단이 빈다. 몇 점인지가 보여야 외줄을 안다."""
+    path = tmp_path / "d.yaml"
+    path.write_text(
+        "kinds:\n"
+        "  soil: {map: {temperature: soil_temp}, sends: [soil_moisture]}\n"
+        "  valve: {map: {state: valve_state}}\n"
+        "devices:\n"
+        "  a: {kind: soil, zone: treatment, sensor_id: S1}\n"
+        "  b: {kind: soil, zone: treatment, sensor_id: S2}\n"
+        "  c: {kind: soil, zone: control, sensor_id: S3}\n"
+        "  v1: {kind: valve, zone: facility, sensor_id: V1}\n"
+        "  v2: {kind: valve, zone: facility, sensor_id: V2}\n",
+        encoding="utf-8")
+    points = coverage.points_per_zone(path)
+    by = {(r["zone"], r["variable"]): r["points"] for _, r in points.iterrows()}
+    assert by[("treatment", "soil_moisture")] == 2
+    assert by[("treatment", "soil_temp")] == 2
+    assert by[("control", "soil_moisture")] == 1          # 외줄
+    assert ("facility", "valve_state") not in by          # 장치별 변수는 점이 아니다
+
+
+def test_페어링됐지만_설정에_없는_장치를_찾는다(tmp_path):
+    path = tmp_path / "d.yaml"
+    path.write_text("devices:\n  known: {zone: treatment, sensor_id: K1}\n",
+                    encoding="utf-8")
+    capture = tmp_path / "capture"
+    capture.mkdir()
+    (capture / "zigbee_devices.json").write_text(json.dumps({
+        "ts": "2026-10-14T05:00:00",
+        "devices": [
+            {"friendly_name": "known", "model": "TS0601_soil", "vendor": "Tuya",
+             "description": "Soil", "ieee_address": "0x1", "supported": True},
+            {"friendly_name": "0xdeadbeef", "model": "TS0201", "vendor": "Tuya",
+             "description": "T&H", "ieee_address": "0xdeadbeef", "supported": True},
+        ]}), encoding="utf-8")
+    missing = coverage.unconfigured_devices(path, capture)
+    assert [d["friendly_name"] for d in missing] == ["0xdeadbeef"]
+    assert coverage.unconfigured_devices(path, tmp_path / "nope") == []
+
+
+def test_설정에_있는_장치끼리는_어긋남이_없다(tmp_path):
+    """밸브 둘·차단기 둘이 같은 구간에 있어도 장치별로 남으므로 경고가 아니다."""
+    path = tmp_path / "d.yaml"
+    path.write_text(
+        "kinds:\n  valve: {map: {state: valve_state}}\n"
+        "devices:\n"
+        "  v1: {kind: valve, zone: facility, sensor_id: V1}\n"
+        "  v2: {kind: valve, zone: facility, sensor_id: V2}\n",
+        encoding="utf-8")
+    assert coverage.conflicts(path) == []

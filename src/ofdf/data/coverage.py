@@ -30,13 +30,14 @@
 
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
 from ofdf.data import ecowitt, rtl433, zigbee
-from ofdf.data.field import FIELD_VARIABLES
+from ofdf.data.field import FIELD_VARIABLES, PER_DEVICE_VARIABLES
 
 #: 실측 장비가 없을 때 대리지표로 계산되는 변수.
 #: :func:`ofdf.features.derived.add_derived` 가 만든다.
@@ -286,35 +287,59 @@ def conflicts(devices_path: str | Path | None) -> list[str]:
             f"두 경로를 동시에 켜면 같은 비가 두 번 들어와 강수가 두 배가 된다. "
             f"RTL-SDR 과 게이트웨이 중 **하나만** 쓰고 나머지 칸은 지운다")
 
-    # 같은 변수를 같은 구간에서 여러 장치가 보내면 중앙값으로 합쳐진다.
-    # 온도처럼 '같은 것을 여러 번 재는' 경우는 그것이 맞지만, 서로 다른
-    # 회로·밸브면 중앙값은 어느 쪽도 아닌 값이 된다.
-    by_zone: dict[tuple[str, str], list[str]] = {}
-    for device in devices.values():
-        for field_name in sorted(set(device.map) | set(device.sends)):
-            variable = device.variable_for(field_name)
-            if variable in _PER_DEVICE_VARIABLES:
-                by_zone.setdefault((device.zone, variable), []).append(
-                    device.sensor_id)
-    for (zone, variable), sensors in sorted(by_zone.items()):
-        if len(sensors) > 1:
-            notes.append(
-                f"{variable}: {zone} 구간에서 {', '.join(sensors)} 가 같은 변수를 "
-                f"쓴다. 서로 다른 장치라면 구간 통합이 중앙값을 내므로 "
-                f"(켜짐·꺼짐이면 0.5) 변수를 따로 두어야 한다")
     return notes
 
 
-#: 장치마다 다른 것을 재는 변수. 한 구간에 둘 이상이면 합치면 안 된다.
-#:
-#: 기온·지온처럼 '같은 것을 여러 점에서 재는' 변수는 중앙값으로 합치는 것이
-#: 맞다. 그러나 밸브 두 개, 회로 두 개는 서로 다른 것이다.
-_PER_DEVICE_VARIABLES = frozenset({
-    "valve_state", "circuit_state", "aux_circuit_state",
-    "pump_power", "aux_power", "pump_energy", "aux_energy",
-    "pump_current", "motor_current", "irrigation_flow", "spray_flow",
-    "irrigation_volume", "shade_position",
-})
+def unconfigured_devices(
+    devices_path: str | Path | None, capture_dir: str | Path | None
+) -> list[dict[str, str]]:
+    """페어링은 됐는데 설정에 없는 Zigbee 장치.
+
+    센서를 여러 대 붙이면 반드시 생기는 틈이다. 페어링한 장치의 값은
+    '모르는 장치'로 버려지는데, 화면에는 아무것도 안 나오므로 **센서가
+    고장난 것과 구별이 안 된다.** 브리지가 남긴 페어링 목록과 설정을 맞대야
+    보인다.
+    """
+    if not devices_path or not capture_dir:
+        return []
+    path = Path(capture_dir) / "zigbee_devices.json"
+    if not path.exists() or not Path(devices_path).exists():
+        return []
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        devices = zigbee.load_devices(devices_path)
+    except Exception:
+        return []
+    paired = data.get("devices", []) if isinstance(data, dict) else data
+    return zigbee.unconfigured([d for d in paired if isinstance(d, dict)], devices)
+
+
+def points_per_zone(devices_path: str | Path | None) -> pd.DataFrame:
+    """구간·변수마다 측정점이 몇 개인지.
+
+    설계는 '초관부 온도 2점·토양 2점'이다. 1점이면 그 센서가 죽는 순간 그
+    구간의 판단이 빈다. 몇 점인지가 보여야 어디가 외줄인지 안다.
+    """
+    columns = ["zone", "variable", "points", "sensors"]
+    if not devices_path or not Path(devices_path).exists():
+        return pd.DataFrame(columns=columns)
+    try:
+        devices = zigbee.load_devices(devices_path)
+    except Exception:
+        return pd.DataFrame(columns=columns)
+    rows: dict[tuple[str, str], list[str]] = {}
+    for device in devices.values():
+        for field_name in sorted(set(device.map) | set(device.sends)):
+            variable = device.variable_for(field_name)
+            if variable is None or variable not in FIELD_VARIABLES:
+                continue
+            if variable in PER_DEVICE_VARIABLES:
+                continue                   # 장치별 변수는 '점'이 아니다
+            rows.setdefault((device.zone, variable), []).append(device.sensor_id)
+    out = [{"zone": z, "variable": v, "points": len(ids), "sensors": sorted(ids)}
+           for (z, v), ids in rows.items()]
+    frame = pd.DataFrame(out, columns=columns)
+    return frame.sort_values(["zone", "variable"]).reset_index(drop=True)
 
 
 def summary(frame: pd.DataFrame) -> dict[str, int]:

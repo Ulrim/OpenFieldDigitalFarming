@@ -34,6 +34,8 @@ from ofdf.data.counter import CumulativeCounter  # noqa: E402
 #: 수집 파일을 하루 단위로 나눈다. 한 파일이 끝없이 커지지 않게 한다.
 FILE_PATTERN = "zigbee_%Y%m%d.csv"
 CAPTURE_PATTERN = "capture_%Y%m%d.jsonl"
+#: 페어링된 장치 목록. 센서를 달고 설정에 안 적은 것을 찾는 데 쓴다.
+DEVICES_FILE = "zigbee_devices.json"
 COLUMNS = ["ts", "zone", "sensor_id", "variable", "value", "unit", "quality"]
 
 
@@ -63,6 +65,21 @@ class Writer:
             for row in rows:
                 handle.write(",".join(str(row[c]) for c in COLUMNS) + "\n")
         self.rows += len(rows)
+
+    def devices(self, payload: str) -> int:
+        """``bridge/devices`` 를 받을 때마다 페어링 목록을 덮어쓴다."""
+        if not self.capture_dir:
+            return 0
+        try:
+            paired = zigbee.parse_bridge_devices(payload)
+        except ValueError:
+            return 0
+        tmp = self.capture_dir / (DEVICES_FILE + ".tmp")
+        tmp.write_text(json.dumps(
+            {"ts": dt.datetime.now().isoformat(), "devices": paired},
+            ensure_ascii=False, indent=1), encoding="utf-8")
+        tmp.replace(self.capture_dir / DEVICES_FILE)
+        return len(paired)
 
     def capture(self, topic: str, payload: str) -> None:
         if not self.capture_dir:
@@ -110,10 +127,22 @@ def run_subscribe(args, devices, writer: Writer) -> int:
     def on_connect(client, userdata, flags, rc, properties=None):
         topic = f"{args.base_topic}/+"
         client.subscribe(topic)
+        # 페어링 목록. Z2M 이 기동할 때와 장치가 바뀔 때 보내 준다(retained).
+        client.subscribe(f"{args.base_topic}/bridge/devices")
         print(f"[연결] {args.host}:{args.port}  구독 {topic}")
 
     def on_message(client, userdata, message):
         payload = message.payload.decode("utf-8", errors="replace")
+        if message.topic == f"{args.base_topic}/bridge/devices":
+            count = writer.devices(payload)
+            missing = zigbee.unconfigured(
+                zigbee.parse_bridge_devices(payload), devices)
+            print(f"[페어링] {count}대 · 설정에 없는 장치 {len(missing)}대")
+            for d in missing:
+                print(f"[미설정] {d['friendly_name']} ({d['model']}) — "
+                      f"configs/devices.yaml 에 적어야 값이 들어온다",
+                      file=sys.stderr)
+            return
         writer.capture(message.topic, payload)
         unknown: list[str] = []
         try:

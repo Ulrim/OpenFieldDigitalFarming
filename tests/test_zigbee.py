@@ -175,10 +175,15 @@ def test_shipped_device_config_matches_what_was_bought():
     canopy = [d for d in devices.values()
               if d.map.get("temperature") == "canopy_temp"]
     assert canopy, "초관부 온도로 지정된 장치가 없다"
-    assert {d.zone for d in canopy} == {"treatment"}, (
-        "온습도 센서 구매분이 1대라 적용구간에만 있다. "
-        "비교구간에도 달게 되면 이 기대값을 함께 고친다"
-    )
+
+    # 사업계획서의 설계는 구간마다 초관부 온습도 2점·토양 2점이고, 비교구간에
+    # 같은 구성을 대칭으로 둔다. 센서는 여러 대 붙는다 — 1점이면 그 센서가
+    # 죽는 순간 그 구간의 판단이 빈다.
+    for zone in ("treatment", "control"):
+        assert sum(1 for d in canopy if d.zone == zone) >= 2, \
+            f"{zone} 구간 초관부 온습도가 2점 미만이다"
+        assert sum(1 for d in soil if d.zone == zone) >= 2, \
+            f"{zone} 구간 토양 센서가 2점 미만이다"
 
 
 def test_metering_breaker_voltage_is_line_voltage_not_battery():
@@ -378,3 +383,88 @@ def test_Zigbee가_아닌_장치도_센서_상태에_나온다():
         frame, {}, extra={"WS90-01": ("mast", "폴대 상단 2m")})
     assert status.iloc[0]["note"] == "폴대 상단 2m"
     assert status.iloc[0]["zone"] == "mast"
+
+
+# ── 센서가 여러 대일 때 ─────────────────────────────────────────
+
+KINDS_YAML = """
+kinds:
+  soil:
+    note: 토양
+    map: {temperature: soil_temp}
+    sends: [soil_moisture, battery, linkquality]
+  valve:
+    map: {state: valve_state, flow: irrigation_flow, temperature: ""}
+devices:
+  soil-treat-01: {kind: soil, zone: treatment, sensor_id: SOIL-T1, note: 깊이 10cm}
+  soil-treat-02: {kind: soil, zone: treatment, sensor_id: SOIL-T2}
+  soil-ctrl-01:  {kind: soil, zone: control,   sensor_id: SOIL-C1}
+  valve-a:       {kind: valve, zone: facility, sensor_id: VALVE-01}
+  valve-b:       {kind: valve, zone: facility, sensor_id: VALVE-02,
+                  map: {flow: spray_flow}}
+  lone-01:       {zone: facility, sensor_id: LONE-01, map: {water_leak: enclosure_flood}}
+"""
+
+
+def test_종류에_적은_매핑을_장치가_물려받는다(tmp_path):
+    """토양센서 넉 대에 같은 줄을 네 번 적지 않는다."""
+    path = tmp_path / "d.yaml"
+    path.write_text(KINDS_YAML, encoding="utf-8")
+    devices = load_devices(path)
+    for name in ("soil-treat-01", "soil-treat-02", "soil-ctrl-01"):
+        assert devices[name].map == {"temperature": "soil_temp"}
+        assert devices[name].sends == ("soil_moisture", "battery", "linkquality")
+        assert devices[name].kind == "soil"
+    assert devices["soil-treat-02"].note == "토양"          # 종류의 메모
+    assert devices["soil-treat-01"].note == "깊이 10cm"      # 장치가 덮는다
+
+
+def test_장치의_매핑이_종류_위에_덮인다(tmp_path):
+    path = tmp_path / "d.yaml"
+    path.write_text(KINDS_YAML, encoding="utf-8")
+    devices = load_devices(path)
+    assert devices["valve-a"].map["flow"] == "irrigation_flow"
+    assert devices["valve-b"].map["flow"] == "spray_flow"     # 덮였다
+    assert devices["valve-b"].map["state"] == "valve_state"   # 나머지는 그대로
+
+
+def test_종류_없이_직접_적어도_된다(tmp_path):
+    path = tmp_path / "d.yaml"
+    path.write_text(KINDS_YAML, encoding="utf-8")
+    devices = load_devices(path)
+    assert devices["lone-01"].kind == ""
+    assert devices["lone-01"].map == {"water_leak": "enclosure_flood"}
+
+
+def test_없는_종류를_적으면_바로_알린다(tmp_path):
+    """오타로 매핑이 통째로 빠지면 값이 조용히 버려진다. 읽을 때 막는다."""
+    path = tmp_path / "d.yaml"
+    path.write_text("devices:\n  x: {kind: soli, zone: treatment}\n", encoding="utf-8")
+    with pytest.raises(ValueError, match="soli"):
+        load_devices(path)
+
+
+def test_페어링_목록에서_설정에_없는_장치를_찾는다():
+    payload = json.dumps([
+        {"friendly_name": "Coordinator", "type": "Coordinator"},
+        {"friendly_name": "soil-treat-01", "type": "EndDevice",
+         "ieee_address": "0xa1",
+         "definition": {"model": "TS0601_soil", "vendor": "Tuya",
+                        "description": "Soil sensor"}},
+        {"friendly_name": "0x00124b00aabbccdd", "type": "EndDevice",
+         "ieee_address": "0x00124b00aabbccdd",
+         "definition": {"model": "TS0201", "vendor": "Tuya",
+                        "description": "Temperature & humidity sensor"}},
+    ])
+    paired = zigbee.parse_bridge_devices(payload)
+    assert [d["friendly_name"] for d in paired] == ["soil-treat-01", "0x00124b00aabbccdd"]
+    assert paired[1]["model"] == "TS0201"
+
+    devices = {"soil-treat-01": Device(name="soil-treat-01")}
+    missing = zigbee.unconfigured(paired, devices)
+    assert [d["friendly_name"] for d in missing] == ["0x00124b00aabbccdd"]
+
+
+def test_깨진_페어링_목록은_빈_목록이다():
+    assert zigbee.parse_bridge_devices("{}") == []
+    assert zigbee.parse_bridge_devices([1, "x", None]) == []

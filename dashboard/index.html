@@ -165,6 +165,13 @@ body {
 /* ── 센서 상태 ── 자료가 끊기기 전에 보여야 하는 칸 ── */
 .sensors { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 10px; }
 @media (max-width: 480px) { .sensors { grid-template-columns: 1fr; } }
+/* 구간 머리. 카드 격자를 가로로 다 차지한다. */
+.zone-head { grid-column: 1 / -1; display: flex; align-items: baseline; gap: 10px;
+  margin-top: 6px; padding-bottom: 2px; border-bottom: 1px solid var(--line); }
+.zone-head:first-child { margin-top: 0; }
+.zone-head b { font-size: 13px; }
+.zone-head span { font-size: 12px; color: var(--ink-3); }
+.zone-head.short span { color: var(--critical-ink); font-weight: 600; }
 .sensor {
   background: var(--surface); border: 1px solid var(--line); border-radius: 8px;
   padding: 12px 14px; border-left: 3px solid var(--good); min-width: 0;
@@ -671,7 +678,30 @@ function renderSensors(list) {
   if (!list.length) { block.hidden = true; return; }
   block.hidden = false;
 
-  $("sensors").innerHTML = list.map((s) => {
+  /* 센서가 여러 대라 구간별로 묶는다. 구간마다 '몇 대 중 몇 대가 살아
+     있는가'를 머리에 적어, 카드를 다 읽지 않아도 어느 구간이 비어 가는지
+     보이게 한다. */
+  const order = ["mast", "treatment", "control", "facility"];
+  const groups = new Map();
+  for (const s of list) {
+    if (!groups.has(s.zone)) groups.set(s.zone, []);
+    groups.get(s.zone).push(s);
+  }
+  const zones = [...groups.keys()].sort((a, b) =>
+    (order.indexOf(a) + 1 || 99) - (order.indexOf(b) + 1 || 99));
+
+  $("sensors").innerHTML = zones.map((zone) => {
+    const items = groups.get(zone);
+    const alive = items.filter((s) => s.minutesAgo < SENSOR_STALE_MIN).length;
+    const head = `<div class="zone-head${alive < items.length ? " short" : ""}">
+      <b>${PLAIN_ZONE[zone] || zone}</b>
+      <span>${alive}/${items.length}대 수신 중</span></div>`;
+    return head + items.map(renderSensorCard).join("");
+  }).join("");
+}
+
+function renderSensorCard(s) {
+  {
     const dead = s.minutesAgo >= SENSOR_STALE_MIN;
     const low = (s.battery !== null && s.battery <= BATTERY_LOW)
       || (s.supercap != null && s.supercap <= SUPERCAP_LOW);
@@ -713,7 +743,7 @@ function renderSensors(list) {
       ${states ? `<div class="states">${states}</div>` : ""}
       <div class="state">${state}</div>
     </div>`;
-  }).join("");
+  }
 }
 
 // 농가 / 운영자 화면 전환

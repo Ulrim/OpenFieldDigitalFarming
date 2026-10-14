@@ -93,6 +93,21 @@ FIELD_VARIABLES: dict[str, tuple[str, float, float]] = {
 #: 센서 1점이 고장나도 판단이 흔들리지 않도록 평균이 아니라 중앙값을 쓴다.
 POINT_AGGREGATION = "median"
 
+#: 장치마다 **다른 것**을 재는 변수. 한 구간에 여럿이어도 합치지 않는다.
+#:
+#: 측정점 통합은 '같은 것을 여러 점에서 재는' 경우를 위한 장치다. 초관부
+#: 온도 2점은 같은 구간의 같은 양이므로 중앙값이 맞다. 그러나 관수 밸브
+#: 세 개는 세 라인이고, 차단기 두 개는 두 회로다. 하나가 열리고 둘이 닫혀
+#: 있을 때 중앙값 0 은 '닫혔다'는 거짓이 된다. 이 변수들은 장치별로 남겨
+#: ``zone.SENSOR.variable`` 컬럼이 된다 — 밸브가 몇 개 붙든 서로를 덮지 않는다.
+PER_DEVICE_VARIABLES = frozenset({
+    "valve_state", "circuit_state", "aux_circuit_state",
+    "pump_power", "aux_power", "pump_energy", "aux_energy",
+    "pump_current", "motor_current",
+    "irrigation_flow", "irrigation_volume", "spray_flow",
+    "shade_position", "enclosure_flood", "emergency_stop",
+})
+
 #: 시간 집계 방식. 강수는 적산, 돌풍은 최댓값, 나머지는 평균이다.
 TIME_AGGREGATION: dict[str, str] = {
     "rain": "sum",
@@ -260,7 +275,15 @@ def reconcile_points(df: pd.DataFrame, *, spread_limit: float = 3.0) -> pd.DataF
     clean = clamp_tolerated(df)
     clean.loc[flag_out_of_range(clean), "value"] = np.nan
 
-    grouped = clean.groupby(["ts", "zone", "variable"], sort=False)["value"]
+    # 장치별로 남길 변수는 센서 이름을 '점'으로 들고 간다. 나머지는 빈 점으로
+    # 두어 같은 구간의 여러 점이 하나로 합쳐진다.
+    per_device = clean["variable"].isin(PER_DEVICE_VARIABLES)
+    if "sensor_id" in clean.columns:
+        clean["point"] = np.where(per_device, clean["sensor_id"].astype(str), "")
+    else:
+        clean["point"] = ""
+
+    grouped = clean.groupby(["ts", "zone", "point", "variable"], sort=False)["value"]
     out = pd.DataFrame({
         "value": grouped.median() if POINT_AGGREGATION == "median" else grouped.mean(),
         "n_points": grouped.count(),
@@ -272,11 +295,22 @@ def reconcile_points(df: pd.DataFrame, *, spread_limit: float = 3.0) -> pd.DataF
 
 
 def to_wide(reconciled: pd.DataFrame) -> pd.DataFrame:
-    """구간별 변수를 ``zone.variable`` 컬럼의 가로 표로 편다."""
-    wide = reconciled.pivot_table(
-        index="ts", columns=["zone", "variable"], values="value", aggfunc="first"
+    """구간별 변수를 ``zone.variable`` 컬럼의 가로 표로 편다.
+
+    장치별로 남긴 변수(:data:`PER_DEVICE_VARIABLES`)는 ``zone.SENSOR.variable``
+    이 된다. 변수 이름은 언제나 마지막 마디다.
+    """
+    frame = reconciled
+    if "point" not in frame.columns:
+        frame = frame.assign(point="")
+    wide = frame.pivot_table(
+        index="ts", columns=["zone", "point", "variable"], values="value",
+        aggfunc="first",
     )
-    wide.columns = [f"{zone}.{variable}" for zone, variable in wide.columns]
+    wide.columns = [
+        f"{zone}.{point}.{variable}" if point else f"{zone}.{variable}"
+        for zone, point, variable in wide.columns
+    ]
     return wide.sort_index()
 
 
@@ -309,7 +343,10 @@ def zone_frame(wide: pd.DataFrame, zone: str, *, fallback_zone: str = ZONE_MAST)
     """
     def pick(source_zone: str) -> pd.DataFrame:
         prefix = f"{source_zone}."
-        columns = [c for c in wide.columns if c.startswith(prefix)]
+        # 장치별 컬럼(zone.SENSOR.variable)은 모델 입력이 아니다. 밸브 세 개의
+        # 상태가 특징으로 새어 들어가면 안 된다.
+        columns = [c for c in wide.columns
+                   if c.startswith(prefix) and c.count(".") == 1]
         return wide[columns].rename(columns=lambda c: c[len(prefix):])
 
     frame = pick(zone)

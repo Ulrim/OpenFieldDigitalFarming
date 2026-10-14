@@ -161,6 +161,10 @@ class Device:
     name: str                                   #: Zigbee2MQTT friendly_name
     zone: str = ZONE_TREATMENT
     sensor_id: str = ""
+    #: 종류 이름(설정의 ``kinds:`` 열쇠). 매핑·보내는 필드의 기본값을 거기서
+    #: 가져온다. 센서가 열 대라도 종류는 대여섯이므로 매핑은 종류에 적고,
+    #: 장치에는 어디에 달렸는지만 적는다.
+    kind: str = ""
     #: Z2M 필드 -> 우리 변수. 기본 매핑을 덮는다.
     map: dict[str, str] = dc_field(default_factory=dict)
     #: 설치 높이·깊이 등 사람이 읽을 메모. 화면에 그대로 나간다.
@@ -188,36 +192,115 @@ class Device:
         return Z2M_DEFAULT_MAP.get(field_name)
 
 
+@dataclass
+class Kind:
+    """센서 종류 하나 — 같은 모델이 여러 대일 때 매핑을 한 번만 적기 위한 것."""
+
+    name: str
+    map: dict[str, str] = dc_field(default_factory=dict)
+    sends: tuple[str, ...] = ()
+    note: str = ""
+
+
+def load_kinds(path: str | Path) -> dict[str, Kind]:
+    """설정의 ``kinds:`` 칸을 읽는다."""
+    import yaml
+
+    raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    out: dict[str, Kind] = {}
+    for name, cfg in (raw.get("kinds") or {}).items():
+        cfg = cfg or {}
+        out[str(name)] = Kind(
+            name=str(name), map=dict(cfg.get("map") or {}),
+            sends=tuple(cfg.get("sends") or ()), note=cfg.get("note", ""),
+        )
+    return out
+
+
 def load_devices(path: str | Path) -> dict[str, Device]:
     """장치 설정 YAML 을 읽는다.
 
-    ``devices:`` 아래에 friendly_name 을 키로 둔다::
+    센서는 여러 대 붙는다. 매핑을 장치마다 적으면 토양센서 여덟 대에 같은
+    줄을 여덟 번 적게 되고, 하나만 고치는 날이 온다. 그래서 **종류**
+    (``kinds:``)에 매핑을 적고, 장치(``devices:``)에는 종류와 설치 위치만
+    적는다::
+
+        kinds:
+          soil:
+            map: {temperature: soil_temp}
+            sends: [soil_moisture, battery, linkquality]
 
         devices:
-          canopy-treat-01:
-            zone: treatment
-            sensor_id: CN-01
-            note: 지상 10cm, 라디에이션 실드
-            map:
-              temperature: canopy_temp
-              humidity: rh
-            sends: [battery, linkquality]
+          soil-treat-01: {kind: soil, zone: treatment, sensor_id: SOIL-T1, note: 깊이 10cm}
+          soil-treat-02: {kind: soil, zone: treatment, sensor_id: SOIL-T2, note: 깊이 20cm}
+
+    장치에 적은 ``map``·``sends`` 는 종류의 것 위에 덮인다. 종류 없이 장치에
+    직접 적어도 된다 — 한 대뿐인 장치까지 종류를 만들 필요는 없다.
     """
     import yaml
 
     raw = yaml.safe_load(Path(path).read_text(encoding="utf-8")) or {}
+    kinds = load_kinds(path)
     out: dict[str, Device] = {}
     for name, cfg in (raw.get("devices") or {}).items():
         cfg = cfg or {}
+        kind_name = str(cfg.get("kind") or "")
+        kind = kinds.get(kind_name)
+        if kind_name and kind is None:
+            raise ValueError(
+                f"{name}: 종류 '{kind_name}' 가 kinds: 에 없다. 오타이거나 "
+                f"종류를 먼저 적어야 한다")
+        mapping = dict(kind.map) if kind else {}
+        mapping.update(cfg.get("map") or {})
+        sends = tuple(kind.sends) if kind else ()
+        sends += tuple(f for f in (cfg.get("sends") or ()) if f not in sends)
         out[name] = Device(
             name=name,
             zone=cfg.get("zone", ZONE_TREATMENT),
             sensor_id=cfg.get("sensor_id", ""),
-            map=dict(cfg.get("map") or {}),
-            note=cfg.get("note", ""),
-            sends=tuple(cfg.get("sends") or ()),
+            kind=kind_name,
+            map=mapping,
+            note=cfg.get("note", "") or (kind.note if kind else ""),
+            sends=sends,
         )
     return out
+
+
+#: Zigbee2MQTT 가 ``bridge/devices`` 로 내보내는 페어링 목록 가운데 남길 것.
+BRIDGE_DEVICE_FIELDS = ("friendly_name", "ieee_address", "type", "model_id")
+
+
+def parse_bridge_devices(payload: str | list) -> list[dict[str, str]]:
+    """``zigbee2mqtt/bridge/devices`` 메시지에서 페어링된 장치 목록을 뽑는다.
+
+    센서를 여러 대 붙이면 '페어링은 했는데 설정에 안 적은 장치'가 생긴다.
+    그 장치의 값은 '모르는 장치'로 버려지는데, 무엇이 빠졌는지는 이 목록과
+    설정을 맞대야 보인다. 그래서 브리지가 이것을 받을 때마다 파일로 남긴다.
+    """
+    data = json.loads(payload) if isinstance(payload, str) else payload
+    out: list[dict[str, str]] = []
+    for entry in data if isinstance(data, list) else []:
+        if not isinstance(entry, dict):
+            continue
+        if entry.get("type") == "Coordinator":
+            continue                        # 동글 자신은 센서가 아니다
+        definition = entry.get("definition") or {}
+        out.append({
+            "friendly_name": str(entry.get("friendly_name", "")),
+            "ieee_address": str(entry.get("ieee_address", "")),
+            "model": str(definition.get("model") or entry.get("model_id") or ""),
+            "vendor": str(definition.get("vendor") or ""),
+            "description": str(definition.get("description") or ""),
+            "supported": bool(entry.get("supported", True)),
+        })
+    return out
+
+
+def unconfigured(
+    paired: list[dict[str, str]], devices: dict[str, Device]
+) -> list[dict[str, str]]:
+    """페어링은 됐는데 설정에 없는 장치."""
+    return [d for d in paired if d["friendly_name"] not in devices]
 
 
 def to_number(raw: Any) -> float | None:

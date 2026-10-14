@@ -15,28 +15,12 @@
 # 쓴다. 적지 않아도 값은 들어온다.
 #
 # 칸이 셋이다.
-#   devices:  Zigbee2MQTT 로 들어오는 장치 (friendly_name 이 열쇠)
-#   rf:       433MHz 로 들어오는 장치 (rtl_433 의 model 또는 model/id 가 열쇠)
-#   ecowitt:  에코윗 게이트웨이와 거기 붙은 보조 채널
-#
-# 포장에 무엇이 달려 있는지를 한 파일에 모은다. 경로마다 따로 적으면
-# 한쪽만 고치는 날이 온다.
-#
-# zone: mast | treatment | control | facility
-#
-# ※ friendly_name(키)은 Zigbee2MQTT 웹UI 에서 장치를 페어링한 뒤 붙인 이름과
-#   같아야 한다. 아래는 권장 이름이다. 페어링 후 Z2M 에서 이대로 바꾸면 된다.
-
-devices:
-  # ── 적용구간 ──────────────────────────────────────────────
-  # Tuya Zigbee 온습도 센서 ×1
-  #
-  # 구매분이 1대뿐이라 적용구간에만 둔다. 비교구간 초관부 온도는 당분간
-  # 대리지표(운량·풍속 기반 추정)로 간다. 서리 전·후 비교를 하려면 같은
-  # 모델 1대가 더 필요하다.
-  canopy-treat-01:
-    zone: treatment
-    sensor_id: CN-01
+#   # ── 센서 종류 ────────────────────────────────────────────────
+# 매핑은 여기 한 번만. 장치에 map 을 적으면 종류의 것 위에 덮인다.
+kinds:
+  # Tuya Zigbee 온습도 센서 — 지상 10cm 초관부에 단다. 2m 에 달면 기온이므로
+  # 그 장치만 map: {temperature: t_air} 로 덮는다.
+  canopy:
     note: 지상 10cm 초관부 · 라디에이션 실드 필요
     map:
       temperature: canopy_temp     # 지상 10cm 이므로 기온이 아니다
@@ -44,51 +28,36 @@ devices:
     sends: [battery, linkquality]
 
   # 지그비 스마트 투야 토양 수분·온도 센서
-  # (최소주문 수량이 있으므로 실제 받은 대수에 맞춰 아래를 늘리거나 줄인다)
-  soil-treat-01:
-    zone: treatment
-    sensor_id: SOIL-T1
-    note: 깊이 10cm
+  soil:
+    note: 토양 10cm
     map:
       temperature: soil_temp       # 흙에 꽂혀 있으므로 지온이다
     sends: [soil_moisture, battery, linkquality]
 
-  soil-treat-02:
-    zone: treatment
-    sensor_id: SOIL-T2
-    note: 깊이 20cm
-    map:
-      temperature: soil_temp
-    sends: [soil_moisture, battery, linkquality]
-
-  # ── 비교구간 ──────────────────────────────────────────────
-  soil-ctrl-01:
-    zone: control
-    sensor_id: SOIL-C1
-    note: 깊이 10cm · 적용구간과 대칭
-    map:
-      temperature: soil_temp
-    sends: [soil_moisture, battery, linkquality]
-
-  # ── 시설·안전 ─────────────────────────────────────────────
-  # Zigbee 누수 센서 (110dB 알람) ×1
-  leak-pump-01:
-    zone: facility
-    sensor_id: LEAK-01
-    note: 펌프실 바닥 · 실내 전용(노지 설치는 강우 오검지)
-    # water_leak 은 기본 매핑으로 enclosure_flood 가 된다
+  # Zigbee 누수 센서 (110dB 알람)
+  leak:
+    note: 실내 전용(노지 설치는 강우 오검지)
     map:
       tamper: tamper               # 뜯김 감지 — 센서가 치워졌는지 알려 준다
     sends: [water_leak, battery, linkquality]
 
-  # TUYA ZigBee 스마트 회로 차단기 1P 63A (전력계측) ×2
+  # Zigbee Tuya 스마트 워터밸브 + 유량계
+  # ※ 구매 시 'Zigbee 버전'이어야 한다. WiFi 버전이면 Zigbee2MQTT 로 들어오지
+  #   않으므로 수집 경로가 통째로 달라진다. 페어링이 안 되면 이것부터 확인한다.
+  valve:
+    map:
+      state: valve_state           # 열림·닫힘. T-07 제어응답이 보는 값이다
+      flow: irrigation_flow
+      water_consumed: irrigation_volume   # 적산 수량 -> 구간 차분
+      temperature: ""              # 밸브 몸체 온도다. 작물 판단에 쓰지 않는다
+    sends: [battery, linkquality]
+
+  # TUYA ZigBee 스마트 회로 차단기 1P 63A (전력계측) — 관수펌프 회로용
   #
   # 전류·전력은 '명령이 실제로 실행됐는지' 확인하는 신호다. 펌프가 돌면
   # 전류가 뜨고, 안 돌면 안 뜬다. 공인시험 T-07(제어응답)이 이것을 쓴다.
-  breaker-pump-01:
-    zone: facility
-    sensor_id: PUMP-01
-    note: 관수펌프 회로 · 220V 분전반(전기공사 유자격자 시공)
+  breaker-pump:
+    note: 220V 분전반(전기공사 유자격자 시공)
     map:
       state: circuit_state         # 통전 여부. 명령이 실행됐는지의 되읽기 값
       current: pump_current
@@ -97,14 +66,12 @@ devices:
       energy: pump_energy          # 적산 전력량 -> 구간 차분. 짧은 가동도 남는다
       temperature: ""              # 차단기 본체 온도. 작물 판단에 쓰지 않는다
                                    # (과열은 device_temperature 로 따로 남는다)
+    sends: [linkquality]
 
-  # 보조 회로는 관수펌프와 **다른 회로**다. 같은 변수에 담으면 구간 통합이
-  # 둘의 중앙값을 내는데, 하나가 켜지고 하나가 꺼져 있으면 0.5 가 된다.
-  # 측정점 통합은 '같은 것을 여러 번 재는' 경우를 위한 장치다.
-  breaker-aux-01:
-    zone: facility
-    sensor_id: AUX-01
-    note: 보조 회로(환기·난방)
+  # 같은 차단기, 보조 회로(환기·난방)용. 관수펌프와 **다른 회로**라 변수를
+  # 따로 둔다.
+  breaker-aux:
+    note: 220V 분전반 · 보조 회로
     map:
       state: aux_circuit_state
       current: motor_current
@@ -112,21 +79,40 @@ devices:
       voltage: line_voltage        # 같은 분전반 선간전압이라 이쪽은 공용이다
       energy: aux_energy
       temperature: ""
+    sends: [linkquality]
 
-  # Zigbee Tuya 스마트 워터밸브 + 유량계 ×1
+# ── 장치 ──────────────────────────────────────────────────────
+# friendly_name(키)은 Zigbee2MQTT 웹UI 에서 페어링한 뒤 붙인 이름과 같아야
+# 한다. 페어링 후 Z2M 에서 이대로 바꾸면 된다.
+#
+# 밸브·차단기처럼 장치마다 다른 것을 재는 변수(valve_state 등)는 구간으로
+# 합치지 않고 장치별로 남는다. 밸브가 셋이어도 서로를 덮지 않는다.
+devices:
+  # ── 적용구간 ──────────────────────────────────────────────
+  canopy-treat-01: {kind: canopy, zone: treatment, sensor_id: CN-T1, note: 지상 10cm · 이랑 동쪽}
+  canopy-treat-02: {kind: canopy, zone: treatment, sensor_id: CN-T2, note: 지상 10cm · 이랑 서쪽}
+  soil-treat-01:   {kind: soil,   zone: treatment, sensor_id: SOIL-T1, note: 깊이 10cm}
+  soil-treat-02:   {kind: soil,   zone: treatment, sensor_id: SOIL-T2, note: 깊이 20cm}
+
+  # ── 비교구간 (적용구간과 대칭) ─────────────────────────────
+  canopy-ctrl-01:  {kind: canopy, zone: control, sensor_id: CN-C1, note: 지상 10cm · 적용구간과 대칭}
+  canopy-ctrl-02:  {kind: canopy, zone: control, sensor_id: CN-C2, note: 지상 10cm · 적용구간과 대칭}
+  soil-ctrl-01:    {kind: soil,   zone: control, sensor_id: SOIL-C1, note: 깊이 10cm}
+  soil-ctrl-02:    {kind: soil,   zone: control, sensor_id: SOIL-C2, note: 깊이 20cm}
+
+  # ── 시설·안전 ─────────────────────────────────────────────
+  leak-pump-01:    {kind: leak,  zone: facility, sensor_id: LEAK-01, note: 펌프실 바닥}
+  valve-treat-01:  {kind: valve, zone: facility, sensor_id: VALVE-01, note: 적용구간 관수라인 DN20}
+  breaker-pump-01: {kind: breaker-pump, zone: facility, sensor_id: PUMP-01, note: 관수펌프 회로}
+  breaker-aux-01:  {kind: breaker-aux,  zone: facility, sensor_id: AUX-01,  note: 보조 회로(환기·난방)}
+
+  # 더 다는 날은 한 줄이다. 살수 라인에 밸브를 하나 더 달면:
+  # valve-spray-01:  {kind: valve, zone: facility, sensor_id: VALVE-02, note: 살수라인,
+  #                   map: {flow: spray_flow, water_consumed: ""}}
   #
-  # ※ 구매 시 'Zigbee 버전'이어야 한다. WiFi 버전이면 Zigbee2MQTT 로 들어오지
-  #   않으므로 수집 경로가 통째로 달라진다. 페어링이 안 되면 이것부터 확인한다.
-  valve-treat-01:
-    zone: facility
-    sensor_id: VALVE-01
-    note: 적용구간 관수라인 DN20
-    map:
-      state: valve_state           # 열림·닫힘. T-07 제어응답이 보는 값이다
-      flow: irrigation_flow
-      water_consumed: irrigation_volume   # 적산 수량 -> 구간 차분
-      temperature: ""              # 밸브 몸체 온도다. 작물 판단에 쓰지 않는다
-    sends: [battery, linkquality]
+  # 예비 온습도 센서를 2m 폴대에 달아 기온으로 쓰면(장치 하나만 뜻을 덮는다):
+  # air-mast-01:     {kind: canopy, zone: mast, sensor_id: AIR-01, note: 폴대 2m,
+  #                   map: {temperature: t_air}}
 
 # ── 433MHz (Zigbee 아님) ────────────────────────────────────
 # Ecowitt WS90 7-in-1 은 433MHz 전용 RF 라 Zigbee 로 들어오지 않는다.

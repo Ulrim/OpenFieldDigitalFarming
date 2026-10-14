@@ -531,9 +531,16 @@ def run_sensors(args: argparse.Namespace) -> int:
                 "note": row["note"], "rows": int(row["rows"]),
                 "lastSeen": None if pd.isna(last) else pd.Timestamp(last).isoformat(),
             })
+        points = coverage_mod.points_per_zone(args.devices)
         print(json_mod.dumps(
             {"summary": coverage_mod.summary(frame), "variables": records,
-             "conflicts": coverage_mod.conflicts(args.devices)},
+             "conflicts": coverage_mod.conflicts(args.devices),
+             "unconfigured": coverage_mod.unconfigured_devices(
+                 args.devices, field_dir / "capture"),
+             "points": [
+                 {"zone": r["zone"], "variable": r["variable"],
+                  "points": int(r["points"]), "sensors": list(r["sensors"])}
+                 for _, r in points.iterrows()]},
             ensure_ascii=False, indent=2))
     else:
         print(coverage_mod.format_report(frame))
@@ -541,13 +548,35 @@ def run_sensors(args: argparse.Namespace) -> int:
             print("수집 디렉터리가 비어 있다. 브리지를 띄우면 '수신확인'이 채워진다.")
 
     problems = coverage_mod.conflicts(args.devices)
-    if problems and not args.json:
-        print("[설정 확인]")
-        for note in problems:
-            print(f"  · {note}")
-        print()
+    capture_dir = field_dir / "capture"
+    missing = coverage_mod.unconfigured_devices(args.devices, capture_dir)
+    if not args.json:
+        points = coverage_mod.points_per_zone(args.devices)
+        single = points[points["points"] < 2]
+        if not points.empty:
+            print("[측정점] 구간·변수별 센서 수 — 1점은 그 센서가 죽으면 판단이 빈다")
+            for _, row in points.iterrows():
+                mark = "  " if row["points"] >= 2 else "▲ "
+                print(f"  {mark}{row['zone']:<10} {row['variable']:<16} "
+                      f"{row['points']}점  {', '.join(row['sensors'])}")
+            if not single.empty:
+                print(f"  ▲ 외줄 {len(single)}곳")
+            print()
+        if missing:
+            print(f"[미설정 장치] 페어링은 됐는데 설정에 없다 — 값이 버려지고 있다")
+            for d in missing:
+                print(f"  · {d['friendly_name']}  {d['vendor']} {d['model']}  "
+                      f"{d['description']}")
+            print(f"  configs/devices.yaml 의 devices: 에 한 줄씩 적는다 "
+                  f"(kind·zone·sensor_id)")
+            print()
+        if problems:
+            print("[설정 확인]")
+            for note in problems:
+                print(f"  · {note}")
+            print()
 
-    if args.strict and ((frame["status"] == "장비없음").any() or problems):
+    if args.strict and ((frame["status"] == "장비없음").any() or problems or missing):
         return 1
     return 0
 

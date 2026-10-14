@@ -255,3 +255,66 @@ def test_서로_다른_회로는_같은_변수를_쓰지_않는다():
     assert values["circuit_state"] == 1.0
     assert values["aux_circuit_state"] == 0.0
     assert all(out["n_points"] == 1)       # 서로를 합치지 않았다
+
+
+def test_밸브가_여럿이면_장치별로_남는다():
+    """밸브 세 개는 세 라인이다. 하나가 열리고 둘이 닫혀 있을 때 중앙값 0 은
+    '닫혔다'는 거짓이 된다. 장치별 컬럼으로 남아 서로를 덮지 않아야 한다."""
+    stamp = pd.Timestamp("2026-10-14 02:30")
+    raw = pd.DataFrame({
+        "ts": [stamp] * 3,
+        "zone": ["facility"] * 3,
+        "sensor_id": ["VALVE-01", "VALVE-02", "VALVE-03"],
+        "variable": ["valve_state"] * 3,
+        "value": [1.0, 0.0, 0.0],
+    })
+    wide = field.to_wide(field.reconcile_points(raw))
+    assert set(wide.columns) == {
+        "facility.VALVE-01.valve_state", "facility.VALVE-02.valve_state",
+        "facility.VALVE-03.valve_state",
+    }
+    assert wide.loc[stamp, "facility.VALVE-01.valve_state"] == 1.0
+    assert wide.loc[stamp, "facility.VALVE-02.valve_state"] == 0.0
+
+
+def test_같은_것을_재는_여러_점은_여전히_하나로_합친다():
+    """초관부 온도 2점은 같은 구간의 같은 양이다. 중앙값이 맞다."""
+    stamp = pd.Timestamp("2026-10-14 02:30")
+    raw = pd.DataFrame({
+        "ts": [stamp] * 3,
+        "zone": ["treatment"] * 3,
+        "sensor_id": ["CN-T1", "CN-T2", "CN-T3"],
+        "variable": ["canopy_temp"] * 3,
+        "value": [3.0, 3.4, 9.9],                  # 한 점이 그늘에서 벗어났다
+    })
+    out = field.reconcile_points(raw)
+    assert len(out) == 1
+    assert out.iloc[0]["value"] == 3.4             # 중앙값. 9.9 에 끌려가지 않는다
+    assert out.iloc[0]["n_points"] == 3
+    wide = field.to_wide(out)
+    assert list(wide.columns) == ["treatment.canopy_temp"]
+
+
+def test_장치별_컬럼은_모델_입력으로_새지_않는다():
+    stamp = pd.Timestamp("2026-10-14 02:30")
+    wide = pd.DataFrame({
+        "treatment.canopy_temp": [3.0],
+        "treatment.VALVE-09.valve_state": [1.0],   # 구간 안에 밸브를 두어도
+        "mast.t_air": [5.0],
+    }, index=[stamp])
+    frame = field.zone_frame(wide, "treatment")
+    assert "canopy_temp" in frame.columns
+    assert "t_air" in frame.columns
+    assert not any("VALVE" in c for c in frame.columns)
+
+
+def test_시간_집계도_장치별_컬럼을_변수_규칙으로_모은다():
+    """컬럼 이름이 세 마디라도 변수는 마지막 마디다. 적산은 더하고 상태는 최댓값."""
+    stamps = pd.date_range("2026-10-14 02:30", periods=5, freq="1min")
+    wide = pd.DataFrame({
+        "facility.VALVE-01.irrigation_volume": [0.7] * 5,
+        "facility.VALVE-01.valve_state": [0, 0, 1, 1, 0],
+    }, index=stamps)
+    agg = field.resample(wide, "5min")
+    assert agg.iloc[0]["facility.VALVE-01.irrigation_volume"] == pytest.approx(3.5)
+    assert agg.iloc[0]["facility.VALVE-01.valve_state"] == 1.0
