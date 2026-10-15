@@ -1,0 +1,42 @@
+# WS90 기상센서 수신 (RTL-SDR 동글 → rtl_433 → 수집 파일)
+#
+#   sudo bash scripts/setup_rtlsdr.sh          # 처음 한 번
+#   sudo cp deploy/ofdf-rtl433.service /etc/systemd/system/
+#   sudo systemctl enable --now ofdf-rtl433
+#   journalctl -u ofdf-rtl433 -f               # 수신 로그
+#
+# 엣지 서비스와 분리해 둔다. 판단이 멈춰도 수집은 계속 쌓여야 하고,
+# 동글이 빠져 수집이 죽어도 판단은 마지막 값으로 계속 돌아야 한다.
+
+[Unit]
+Description=노지 대파 WS90 기상센서 수신 (433MHz)
+After=multi-user.target
+
+[Service]
+Type=simple
+User=ofdf
+SupplementaryGroups=plugdev
+WorkingDirectory=/opt/ofdf
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/opt/ofdf/venv/bin/python scripts/rtl433_bridge.py --spawn \
+          --devices configs/devices.yaml --out data/field --capture data/field/capture
+
+# 동글이 잠깐 빠지거나 rtl_433 이 죽으면 되살린다. 너무 빠르게 돌면
+# USB 를 다시 잡기 전이라 5초 쉰다.
+Restart=always
+RestartSec=5
+# rtl_433 종료 시 브리지도 끝난다 — 파이프가 닫히므로. 그것도 되살림 대상이다.
+KillMode=mixed
+
+# USB 동글을 열어야 하므로 PrivateDevices 는 못 쓴다. 대신 쓰기 경로만 연다.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/opt/ofdf/data
+DeviceAllow=/dev/bus/usb rw
+MemoryMax=256M
+Nice=5
+
+[Install]
+WantedBy=multi-user.target

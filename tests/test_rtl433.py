@@ -222,3 +222,48 @@ def test_복조_부산물은_경고를_띄우지_않는다():
          "flags": 0, "channel": 1, "temperature_C": 2.0},
         unknown=unknown)
     assert unknown == []
+
+
+# ── 동글 점검 (--check 가 쓰는 순수 함수) ─────────────────────────
+
+def test_lsusb_에서_동글을_찾는다():
+    out = ("Bus 001 Device 003: ID 0bda:2838 Realtek Semiconductor Corp. RTL2838 DVB-T\n"
+           "Bus 001 Device 002: ID 1a86:55d4 QinHeng Electronics SONOFF Zigbee 3.0 USB Dongle Plus\n")
+    found = rtl433.find_dongle(out)
+    assert len(found) == 1
+    assert "0bda:2838" in found[0]
+    assert rtl433.find_dongle("Bus 001 Device 001: ID 1d6b:0002 Linux Foundation 2.0 root hub") == []
+
+
+def test_커널이_동글을_가로챘는지_안다():
+    """가장 흔한 '안 됨'의 원인. 오류가 뚜렷하지 않아 반나절을 잃는다."""
+    lsmod = "Module                  Size  Used by\ndvb_usb_rtl28xxu       45056  0\nrtl2832                28672  1 dvb_usb_rtl28xxu\n"
+    assert rtl433.dvb_modules_loaded(lsmod) == ["dvb_usb_rtl28xxu", "rtl2832"]
+    assert rtl433.dvb_modules_loaded("Module  Size  Used by\nbluetooth  1  0\n") == []
+
+
+def test_디코더_목록에서_WS90_을_찾는다():
+    assert rtl433.decoder_supported("[244]  Fineoffset-WS90 Weather Station\n[245] Other")
+    assert not rtl433.decoder_supported("[100]  Fineoffset-WH51 Soil moisture\n")
+
+
+def test_들어_본_결과를_요약한다():
+    """WS90 은 약 9초마다 보낸다. 30초면 3회 안팎이 정상이다."""
+    records = [
+        {"model": "Fineoffset-WS90", "id": 12345, "rssi": -8.0},
+        {"model": "Fineoffset-WS90", "id": 12345, "rssi": -10.0},
+        {"model": "Fineoffset-WS90", "id": 12345, "rssi": -9.0},
+        {"model": "Acurite-Tower", "id": 7, "rssi": -22.0},     # 이웃집
+    ]
+    summary = rtl433.listen_summary(records, 30)
+    ws90 = summary["Fineoffset-WS90"]
+    assert ws90["count"] == 3
+    assert ws90["per_minute"] == 6.0
+    assert ws90["rssi_mean"] == -9.0
+    assert ws90["ids"] == ["12345"]
+    assert summary["Acurite-Tower"]["count"] == 1
+
+
+def test_세기가_없는_기록도_요약된다():
+    summary = rtl433.listen_summary([{"model": "Fineoffset-WS90", "id": 1}], 10)
+    assert summary["Fineoffset-WS90"]["rssi_mean"] is None

@@ -276,6 +276,68 @@ def match_device(
     return devices.get(f"{model}/{ident}") or devices.get(model)
 
 
+#: RTL2832U 계열 동글의 USB 식별자. ``lsusb`` 출력에서 찾는다.
+#:
+#: V2·V3(R820T2)·V4(R828D)·Nooelec 모두 복조칩이 RTL2832U 라 같은 ID 로
+#: 뜬다. 튜너 종류는 ``rtl_test`` 가 알려 준다.
+KNOWN_DONGLES: dict[str, str] = {
+    "0bda:2838": "RTL2832U (RTL-SDR Blog / Nooelec / 범용)",
+    "0bda:2832": "RTL2832U (구형)",
+    "1d19:1101": "RTL2832U (Dexatek)",
+}
+
+#: 커널이 동글을 TV 수신기로 잡아 버리는 모듈. 이게 올라와 있으면
+#: ``rtl_433`` 이 장치를 열지 못한다 — 가장 흔한 '안 됨'의 원인이다.
+KERNEL_DVB_MODULES = ("dvb_usb_rtl28xxu", "rtl2832", "rtl2830", "r820t")
+
+
+def find_dongle(lsusb_output: str) -> list[str]:
+    """``lsusb`` 출력에서 RTL-SDR 동글 줄을 찾는다."""
+    found = []
+    for line in lsusb_output.splitlines():
+        for usb_id, name in KNOWN_DONGLES.items():
+            if usb_id in line.lower():
+                found.append(f"{line.strip()}  ← {name}")
+    return found
+
+
+def dvb_modules_loaded(lsmod_output: str) -> list[str]:
+    """``lsmod`` 출력에서 동글을 가로채는 커널 모듈을 찾는다."""
+    names = {line.split()[0] for line in lsmod_output.splitlines() if line.strip()}
+    return [m for m in KERNEL_DVB_MODULES if m in names]
+
+
+def decoder_supported(help_output: str, model: str = "WS90") -> bool:
+    """``rtl_433 -R help`` 출력에 모델 디코더가 있는지."""
+    return model.lower() in help_output.lower()
+
+
+def listen_summary(records: list[dict], seconds: float) -> dict:
+    """짧게 들어 본 결과를 요약한다 — 무엇이 몇 번, 어느 세기로 들렸나.
+
+    WS90 은 약 8.8초마다 한 번 보낸다. 30초를 들으면 3번 안팎이 정상이고,
+    0번이면 (가) 센서가 꺼졌거나 (나) 안테나가 함체 안이거나 (다) 너무 멀다.
+    """
+    by_model: dict[str, dict] = {}
+    for rec in records:
+        model = str(rec.get("model", "?"))
+        slot = by_model.setdefault(model, {"count": 0, "rssi": [], "ids": set()})
+        slot["count"] += 1
+        if isinstance(rec.get("rssi"), (int, float)):
+            slot["rssi"].append(float(rec["rssi"]))
+        slot["ids"].add(str(rec.get("id", "")))
+    out = {}
+    for model, slot in by_model.items():
+        rssi = slot["rssi"]
+        out[model] = {
+            "count": slot["count"],
+            "per_minute": round(slot["count"] * 60.0 / max(seconds, 1.0), 1),
+            "rssi_mean": round(sum(rssi) / len(rssi), 1) if rssi else None,
+            "ids": sorted(slot["ids"]),
+        }
+    return out
+
+
 def read_capture(
     path: str | Path, *, zone: str = ZONE_MAST, sensor_id: str | None = None
 ) -> pd.DataFrame:
