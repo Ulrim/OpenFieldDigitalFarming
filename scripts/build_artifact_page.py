@@ -45,6 +45,19 @@ def strip_document_shell(page: str) -> str:
     return "\n".join(kept).lstrip("\n") + "\n"
 
 
+#: 같은 폴더의 스크립트를 끌어 쓰는 줄. 게시 경로는 파일 하나만 올리므로
+#: 본문에 넣어야 한다 — 두 화면이 같이 쓰는 말(plain.js)이 여기 해당한다.
+LOCAL_SCRIPT = re.compile(r'^\s*<script\s+src="([^/"]+\.js)"></script>\s*$', re.MULTILINE)
+
+
+def inline_local_scripts(page: str, base: Path) -> str:
+    def replace(match: re.Match) -> str:
+        path = base / match.group(1)
+        body = path.read_text(encoding="utf-8")
+        return f"<script>\n/* --- {match.group(1)} --- */\n{body}\n</script>"
+    return LOCAL_SCRIPT.sub(replace, page)
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--source", type=Path, default=SOURCE)
@@ -52,7 +65,7 @@ def main(argv: list[str] | None = None) -> int:
     args = ap.parse_args(argv)
 
     page = args.source.read_text(encoding="utf-8")
-    out = strip_document_shell(page)
+    out = strip_document_shell(inline_local_scripts(page, args.source.parent))
 
     # 떼어낸 뒤에도 남아 있으면 게시 경로와 충돌한다.
     for tag in ("<!doctype", "<html", "<head>", "<body"):

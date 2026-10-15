@@ -1,0 +1,228 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=800,initial-scale=1">
+<title>노지 대파 관제 — 패널</title>
+<link rel="icon" href="data:,">
+<style>
+/* 터치패널 화면 — 공식 7인치 800×480, 크로미움 키오스크.
+   웹 화면(index.html)과 일부러 다르다. 패널은 **읽는 화면이 아니라 보는
+   화면**이다. 3m 밖에서 지나가며 봐도 '지금 괜찮은가, 뭘 해야 하나'가
+   들어와야 하고, 밤에 눈부시지 않아야 하며, 스크롤이 없어야 한다 — 장갑 낀
+   손으로 스크롤은 안 된다. 그래서 어두운 바탕, 큰 숫자, 한 화면.
+   자세한 것(근거·이력·센서 목록)은 휴대폰에서 index.html 로 본다. */
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%;overflow:hidden}
+:root{
+  --bg:#0b1118;--panel:#121a24;--line:#223044;--ink:#e9eef4;--ink-2:#a9b4c2;--ink-3:#6f7c8c;
+  --good:#28a745;--warn:#f0b429;--crit:#e0433d;
+  --lv0:#1d2a36;--lv1:#5a4410;--lv2:#6e1f1b;
+  --font:"IBM Plex Sans KR",system-ui,"Noto Sans CJK KR","Noto Sans KR",sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Menlo,monospace;
+  color-scheme:dark;
+}
+body{background:var(--bg);color:var(--ink);font:500 16px/1.35 var(--font);
+  display:grid;grid-template-rows:44px 1fr auto auto 34px;gap:8px;padding:8px 12px;
+  -webkit-user-select:none;user-select:none;cursor:default}
+header{display:flex;align-items:center;gap:12px;padding:0 4px;border-bottom:1px solid var(--line)}
+header .ttl{font-weight:800;font-size:18px;letter-spacing:-.01em}
+header .site{color:var(--ink-3);font-size:14px}
+header .clock{margin-left:auto;font:700 22px/1 var(--mono);font-variant-numeric:tabular-nums}
+header .mode{font-size:12px;font-weight:800;padding:4px 10px;border-radius:999px;border:1px solid var(--line);color:var(--ink-2)}
+header .mode.auto{color:#7fd1ff;border-color:#2a5a7a}
+header .mode.halt{color:#ff8a85;border-color:#7a2a2a}
+header .link{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--ink-3)}
+header .link i{width:10px;height:10px;border-radius:50%;background:var(--good);display:inline-block}
+header .link.bad i{background:var(--crit)}
+
+/* 알람 띠. 색만으로 가르지 않는다 — 등급 말이 함께 간다 */
+.alarm{border-radius:14px;padding:14px 18px;display:grid;grid-template-columns:1fr auto;gap:4px 16px;align-content:center;
+  background:var(--lv0);border:1px solid var(--line);min-height:0}
+.alarm.lv1{background:var(--lv1);border-color:#8a6a1a}
+.alarm.lv2{background:var(--lv2);border-color:#b23a35}
+.alarm .what{font-size:30px;font-weight:800;line-height:1.2;letter-spacing:-.01em;grid-column:1/-1}
+.alarm .when{font-size:15px;color:var(--ink-2)}
+.alarm .lv{font-size:14px;font-weight:800;padding:3px 10px;border-radius:999px;background:rgba(0,0,0,.35);justify-self:end;align-self:start}
+.alarm .why{grid-column:1/-1;font-size:15px;color:var(--ink-2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.alarm .why b{color:var(--ink)}
+
+/* 큰 숫자 넷. 탭하면 다음 넷 */
+.nums{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+.num{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:10px 12px;min-width:0}
+.num .k{font-size:14px;color:var(--ink-2);font-weight:600}
+.num .v{font:800 44px/1.05 var(--mono);font-variant-numeric:tabular-nums;margin-top:4px;white-space:nowrap}
+.num .v small{font:600 16px/1 var(--mono);color:var(--ink-3);margin-left:4px}
+.num .src{font-size:11px;color:var(--ink-3);margin-top:2px;height:14px}
+.nums .page{position:absolute;right:16px;bottom:50px;font-size:11px;color:var(--ink-3)}
+
+/* 할 일 — 두 줄까지. 더 넣으면 숫자가 눌린다 */
+.todo{display:grid;grid-template-columns:1fr 1fr;gap:8px;min-height:0}
+.todo:empty{display:none}
+.act{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 12px;display:flex;gap:10px;align-items:center;min-width:0}
+.act .no{width:28px;height:28px;border-radius:50%;background:var(--ink);color:var(--bg);font:800 15px/28px var(--mono);text-align:center;flex:0 0 auto}
+.act .t{min-width:0}
+.act .what{font-size:17px;font-weight:800;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act .why{font-size:12.5px;color:var(--ink-3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.act .hand{font-size:11px;font-weight:800;color:var(--warn);border:1px solid var(--warn);border-radius:6px;padding:1px 6px;margin-left:6px;vertical-align:2px}
+.act.none{grid-column:1/-1;justify-content:center;color:var(--ink-2);font-weight:600}
+
+footer{display:flex;align-items:center;gap:14px;font-size:12.5px;color:var(--ink-3);border-top:1px solid var(--line);padding-top:6px}
+footer b{color:var(--ink-2);font-weight:700}
+footer .sensors.short b{color:var(--crit)}
+footer .ver{margin-left:auto;font-family:var(--mono);font-size:11px}
+
+/* 자료가 낡았을 때. 낡은 값을 새 값처럼 보여 주는 것이 가장 나쁘다 */
+#stale{position:fixed;inset:0;background:rgba(11,17,24,.92);display:none;place-items:center;text-align:center;padding:40px}
+#stale.on{display:grid}
+#stale h1{font-size:30px;font-weight:800;margin-bottom:8px;color:#ff8a85}
+#stale p{font-size:17px;color:var(--ink-2)}
+#stale .last{margin-top:14px;font:600 15px var(--mono);color:var(--ink-3)}
+</style>
+</head>
+<body>
+<header>
+  <span class="ttl">노지 대파 관제</span>
+  <span class="site" id="site"></span>
+  <span class="clock" id="clock">--:--</span>
+  <span class="mode" id="mode"></span>
+  <span class="link" id="link"><i></i><span id="link-text">수신</span></span>
+</header>
+
+<section class="alarm" id="alarm" aria-live="polite"></section>
+
+<section class="nums" id="nums" title="탭하면 다음 항목"></section>
+
+<section class="todo" id="todo"></section>
+
+<footer>
+  <span class="sensors" id="sensors"></span>
+  <span id="updated"></span>
+  <span class="ver" id="ver"></span>
+</footer>
+
+<div id="stale" role="alert">
+  <div>
+    <h1>자료가 멈췄습니다</h1>
+    <p id="stale-msg"></p>
+    <div class="last" id="stale-last"></div>
+  </div>
+</div>
+
+<script src="plain.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const REFRESH_MS = 30000, STALE_MS = 15 * 60 * 1000, SENSOR_STALE_MIN = 30;
+const pad = (n) => String(n).padStart(2, "0");
+const hhmm = (iso) => { const d = new Date(iso); return isNaN(d) ? "--:--" : `${pad(d.getHours())}:${pad(d.getMinutes())}`; };
+const levelOf = (c) => Math.max(...Object.values(c.horizons).map((h) => h.level));
+
+/* 숫자는 두 쪽. 앞쪽이 서리·관수에 바로 닿는 넷이다. 탭하면 넘어간다. */
+const PAGES = [
+  [["t_air", "기온", "℃"], ["canopy_temp", "잎 높이 온도", "℃"],
+   ["soil_moisture|soil_index", "흙 수분", ""], ["wind_speed|wind_gust_window", "바람", "m/s"]],
+  [["rh", "습도", "%"], ["rain", "비", "mm"], ["solar_w", "햇빛", "W/m²"],
+   ["leaf_wetness", "잎 젖음", ""]],
+];
+let page = 0, data = null;
+
+function pick(env, key) {
+  for (const k of key.split("|")) {
+    const e = env.find((x) => x.key === k);
+    if (e && e.value !== null && e.value !== undefined) return [e, k];
+  }
+  return [null, key.split("|")[0]];
+}
+
+function renderNums(d) {
+  $("nums").innerHTML = PAGES[page].map(([key, name, unit]) => {
+    const [e, used] = pick(d.environment, key);
+    const v = e ? (typeof e.value === "number" ? (Number.isInteger(e.value) ? e.value : e.value.toFixed(1)) : e.value) : "—";
+    const src = used === "soil_index" ? "추정" : used === "wind_gust_window" ? "순간최대" : "";
+    return `<div class="num"><div class="k">${name}</div>
+      <div class="v">${v}${unit ? `<small>${unit}</small>` : ""}</div>
+      <div class="src">${src}</div></div>`;
+  }).join("");
+}
+
+function render(d) {
+  data = d;
+  $("site").textContent = d.station || "";
+  $("clock").textContent = hhmm(d.now);
+  const mode = $("mode");
+  mode.textContent = d.mode || "";
+  mode.className = "mode " + (d.mode === "자동" ? "auto" : d.mode === "안전정지" ? "halt" : "");
+
+  const ranked = d.cards.slice().sort((a, b) => levelOf(b) - levelOf(a));
+  const top = ranked[0];
+  const level = top ? levelOf(top) : 0;
+  const judgement = top ? d.judgements.find((j) => j.risk === top.risk) : null;
+  const alarm = $("alarm");
+  alarm.className = "alarm lv" + level;
+  if (!top || level === 0) {
+    alarm.innerHTML = `<div class="what">지금 조치할 일이 없습니다</div>
+      <div class="when">앞으로 3시간 안에 올 위험이 없습니다</div><span class="lv">${LV[0]}</span>`;
+  } else {
+    const when = judgement ? `${hhmm(judgement.expectedOnset)}쯤` : "앞으로 3시간 안";
+    alarm.innerHTML = `<div class="what">${(HEADLINE[top.risk] || ["", "위험이 예상됩니다", "위험합니다"])[level]}</div>
+      <div class="when">${when} · ${PLAIN_RISK[top.risk] || top.name}</div>
+      <span class="lv">${LV[level]}</span>
+      <div class="why">${plainWhy(top.risk, d.environment, judgement)}</div>`;
+  }
+
+  renderNums(d);
+
+  const todo = d.actions.filter((a) => !a.rejectedBy).map((a) => {
+    const p = plainAction(a);
+    return p && { ...p, byHand: /구동부 미설치/.test(a.reason || "") };
+  }).filter(Boolean);
+  const seen = new Set();
+  const unique = todo.filter((t) => !seen.has(t.what) && seen.add(t.what)).slice(0, 2);
+  $("todo").innerHTML = unique.length
+    ? unique.map((t, i) => `<div class="act"><span class="no">${i + 1}</span>
+        <span class="t"><div class="what">${t.what}${t.byHand ? '<span class="hand">직접</span>' : ""}</div>
+        <div class="why">${t.why}</div></span></div>`).join("")
+    : (level > 0 ? `<div class="act none">자동으로 처리 중입니다</div>` : "");
+
+  const list = d.sensors || [];
+  if (list.length) {
+    const alive = list.filter((s) => s.minutesAgo < SENSOR_STALE_MIN).length;
+    const el = $("sensors");
+    el.className = "sensors" + (alive < list.length ? " short" : "");
+    el.innerHTML = `센서 <b>${alive}/${list.length}</b> 수신 중`;
+  } else {
+    $("sensors").textContent = "";
+  }
+  $("updated").innerHTML = `갱신 <b>${hhmm(d.generated)}</b>`;
+  $("ver").textContent = d.modelVersion || "";
+
+  const age = Date.now() - new Date(d.generated).getTime();
+  const stale = $("stale");
+  if (isNaN(age) || age > STALE_MS) {
+    stale.className = "on";
+    $("stale-msg").textContent = "판단 서비스가 멈췄거나 센서 자료가 들어오지 않습니다. 제어함을 확인해 주세요.";
+    $("stale-last").textContent = `마지막 갱신 ${hhmm(d.generated)}`;
+    $("link").className = "link bad"; $("link-text").textContent = "끊김";
+  } else {
+    stale.className = "";
+    $("link").className = "link"; $("link-text").textContent = "수신";
+  }
+}
+
+async function load() {
+  try {
+    const r = await fetch("data.json?t=" + Date.now(), { cache: "no-store" });
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json());
+  } catch (e) {
+    $("link").className = "link bad"; $("link-text").textContent = "끊김";
+    if (!data) { $("stale").className = "on"; $("stale-msg").textContent = "화면 자료(data.json)를 읽지 못했습니다."; }
+  }
+}
+$("nums").addEventListener("click", () => { page = (page + 1) % PAGES.length; if (data) renderNums(data); });
+load();
+setInterval(load, REFRESH_MS);
+setInterval(() => { if (data) $("clock").textContent = hhmm(new Date().toISOString()); }, 60000);
+</script>
+</body>
+</html>

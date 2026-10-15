@@ -425,82 +425,8 @@ footer p { margin: 0 0 5px; }
   <footer id="foot"></footer>
 </div>
 
+<script src="plain.js"></script>
 <script>
-const LV = ["정상", "주의", "경계"];
-
-/* 농가 화면에 쓰는 말.
-   '초관부 온도', '엽면습윤' 같은 말은 설계 문서의 용어다. 포장에서 보는
-   화면에는 농가가 쓰는 말로 내보낸다. 뜻이 바뀌지 않는 선에서만 바꾼다. */
-const PLAIN_RISK = {
-  heat_dry: "더위·가뭄", rain_wet: "비·물많음",
-  disease: "병 생기기 쉬움", frost: "추위·서리", compound: "겹친 위험",
-};
-const HEADLINE = {
-  frost:    ["", "오늘 밤 서리가 내릴 수 있습니다", "오늘 밤 서리가 내립니다"],
-  heat_dry: ["", "낮에 더위·가뭄 피해가 올 수 있습니다", "낮에 더위·가뭄 피해가 옵니다"],
-  rain_wet: ["", "비로 물이 많아질 수 있습니다", "비로 물이 많아집니다"],
-  disease:  ["", "병이 생기기 쉬운 날씨가 됩니다", "병이 생기기 아주 쉬운 날씨입니다"],
-  compound: ["", "위험이 둘 겹칠 수 있습니다", "위험이 둘 겹칩니다"],
-};
-/* 조치를 농가가 바로 할 수 있는 말로. [할 일, 왜] */
-const PLAIN_ACTION = [
-  [/야간피복.*전개|피복 전개/, ["비닐·부직포 덮기", "해 지면 덮고 해 뜨면 걷습니다"]],
-  [/피복 준비/,               ["해 진 뒤 덮을 준비", "낮에 덮으면 햇빛이 모자랍니다"]],
-  [/야간·새벽 관수 금지/,      ["밤·새벽에 물 주지 않기", "물을 주면 더 얼어붙습니다"]],
-  [/관수 금지|관수 중단|관수 즉시 중단/, ["물 주기 멈추기", "흙에 물이 이미 많습니다"]],
-  [/관수 준비·실행/,          ["물 주기", "흙이 말라 뿌리가 마릅니다"]],
-  [/살수.*금지|살수.*중단|살수.*중지/, ["미세살수 끄기", "잎이 젖으면 병이 번집니다"]],
-  [/차광 한정 전개/,          ["차광막 치기", "가장 더운 때만, 최대 2시간"]],
-  [/차광 회수|차광막·피복.*회수/, ["차광막·피복 걷기", "바람에 찢어지거나 시간이 다 됐습니다"]],
-  [/전개 금지/,               ["차광막·피복 펴지 않기", "바람이 셉니다"]],
-  [/서리 경보/,               ["내일 아침 잎 끝 살펴보기", "언 자리가 있으면 사진을 남겨 주세요"]],
-  [/배수로·고랑 확인|배수 상태 확인/, ["고랑·배수로 터 주기", "물이 고이면 뿌리가 상합니다"]],
-  [/예찰·방제 준비|방제 준비|방제 일정/, ["약 칠 준비", "노균병·잎마름병이 번지기 쉽습니다"]],
-  [/구동 잠금|전원 차단|정지·경보/, ["기계 멈춤 — 현장 확인 필요", "안전장치가 걸렸습니다"]],
-  [/독립운전/,                ["통신 끊김 — 제어기가 혼자 돌고 있음", "복구되면 기록이 올라갑니다"]],
-];
-/* 구간 이름도 농가 말로 */
-const PLAIN_ZONE = {
-  mast: "기상 마스트", treatment: "적용구간",
-  control: "비교구간", facility: "시설·안전",
-};
-const PLAIN_NOW = [
-  ["t_air", "기온", "℃"], ["canopy_temp", "잎 높이 온도", "℃"],
-  ["rh", "습도", "%"], ["wind_speed", "바람", "m/s"],
-  ["soil_moisture|soil_index", "흙 수분", ""], ["rain", "비", "mm"],
-];
-
-function plainAction(a) {
-  const text = `${a.device} ${a.command}`;
-  for (const [re, [what, why]] of PLAIN_ACTION) if (re.test(text)) return { what, why };
-  /* 짝이 없는 '알림'은 할 일이 아니다. 이 화면 자체가 그 알림이라서,
-     목록에 올리면 '알림 고온·건조 주의 알림' 같은 줄이 생긴다. 위에
-     이미 큰 글씨로 적혀 있는 것을 번호까지 붙여 되풀이하는 셈이다.
-     뜻이 있는 알림(서리 경보 → 내일 아침 잎 끝 살펴보기)은 PLAIN_ACTION
-     에 짝이 있으므로 여기까지 내려오지 않는다. */
-  if (a.device === "알림") return null;
-  return { what: `${a.device} ${a.command}`, why: a.reason };
-}
-
-/* 왜 그런지를 한 문장으로. 숫자는 그대로 쓰되 말은 쉽게. */
-function plainWhy(risk, env, judgement) {
-  const get = (k) => (env.find((e) => e.key === k) || {}).value;
-  const t = get("t_air"), c = get("canopy_temp"), w = get("wind_speed"),
-        h = get("rh"), wet = get("leaf_wetness");
-  // 판단근거 문장도 실측을 먼저 쓴다
-  const s = get("soil_moisture") ?? get("soil_index");
-  if (risk === "frost")
-    return `잎 높이 온도가 <b>${c}℃</b>까지 내려갔습니다. 바람이 <b>${w}m/s</b>로 거의 없어 새벽에 더 떨어집니다.`;
-  if (risk === "heat_dry")
-    return `기온 <b>${t}℃</b>에 흙 수분이 <b>${s}</b>까지 떨어졌습니다.`;
-  if (risk === "rain_wet")
-    return `흙 수분이 <b>${s}</b>이고 비가 이어집니다. 물이 빠질 자리가 필요합니다.`;
-  if (risk === "disease")
-    return `습도 <b>${h}%</b>에 잎이 ${wet >= 0.5 ? "젖어 있습니다" : "젖기 시작합니다"}. 이 상태가 길어지면 병이 번집니다.`;
-  if (judgement && judgement.evidence.length)
-    return judgement.evidence.map((e) => `${e.label} ${e.value}`).join(", ");
-  return "";
-}
 const $ = (id) => document.getElementById(id);
 const fmt = (iso, withDate) => {
   const d = new Date(iso);
