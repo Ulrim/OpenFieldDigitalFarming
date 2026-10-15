@@ -275,9 +275,13 @@ def test_screen_prefers_measured_soil_moisture_over_the_proxy():
     둘 다 화면으로 가되 실측이 있으면 그것을 쓴다.
     """
     page = (ROOT / "dashboard" / "index.html").read_text(encoding="utf-8")
-    assert '"soil_moisture|soil_index"' in page
+    # 숫자 이름과 판단근거 문장은 두 화면이 같이 쓰는 plain.js 에 있다
+    shared = (ROOT / "dashboard" / "plain.js").read_text(encoding="utf-8")
+    kiosk = (ROOT / "dashboard" / "kiosk.html").read_text(encoding="utf-8")
+    assert '"soil_moisture|soil_index"' in shared
+    assert '"soil_moisture|soil_index"' in kiosk, "패널 화면도 실측을 먼저 써야 한다"
     assert 'k.split("|").map(value).find(' in page
-    assert 'get("soil_moisture") ?? get("soil_index")' in page
+    assert 'get("soil_moisture") ?? get("soil_index")' in shared
 
     cli = (ROOT / "src" / "ofdf" / "cli.py").read_text(encoding="utf-8")
     assert '"soil_moisture", "soil_index"' in cli, "둘 다 화면으로 보내야 한다"
