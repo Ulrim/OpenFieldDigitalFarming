@@ -1,0 +1,309 @@
+<title>센서 수집 기술 해설</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@400;600;700&family=IBM+Plex+Mono:wght@400;600&display=swap">
+
+<style>
+/* 레이아웃: 한 단 읽기 폭(70자), 왼쪽에 얇은 차례. 현장 화면과 같은 글꼴 계열. */
+:root {
+  --bg: #fbfaf7; --surface: #ffffff; --ink: #1f2320; --ink-2: #4b5048; --ink-3: #7c8072;
+  --line: #e2e0d8; --accent: #1e6b3a; --accent-soft: #e6f1ea; --code-bg: #f1f0ea;
+  --font-ui: "IBM Plex Sans KR", system-ui, "Noto Sans KR", "Malgun Gothic", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+  --bg: #15171a; --surface: #1c1f23; --ink: #e8e6e0; --ink-2: #b9b7b0; --ink-3: #868b84;
+  --line: #2d3136; --accent: #6dc48a; --accent-soft: #1d2f24; --code-bg: #22262b; color-scheme: dark; } }
+:root[data-theme="dark"] {
+  --bg: #15171a; --surface: #1c1f23; --ink: #e8e6e0; --ink-2: #b9b7b0; --ink-3: #868b84;
+  --line: #2d3136; --accent: #6dc48a; --accent-soft: #1d2f24; --code-bg: #22262b; color-scheme: dark; }
+
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15.5px;
+  line-height: 1.7; padding-block: 0 48px;
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.wrap { max-width: 1080px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+@media (max-width: 760px) { .wrap { grid-template-columns: 1fr; gap: 0; } }
+
+header.top { grid-column: 1 / -1; padding: 28px 0 18px; border-bottom: 1px solid var(--line); margin-bottom: 20px; }
+header .eyebrow { font-size: 11.5px; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); font-weight: 600; }
+header h1 { font-size: clamp(22px, 3.4vw, 30px); margin: 4px 0 6px; letter-spacing: -0.01em; text-wrap: balance; }
+header p { margin: 0; color: var(--ink-3); font-size: 13.5px; }
+
+nav.toc { position: sticky; top: env(safe-area-inset-top, 0px); align-self: start; padding-top: 6px; font-size: 13px; }
+nav.toc .lbl { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); margin-bottom: 6px; }
+nav.toc a { display: block; color: var(--ink-2); text-decoration: none; padding: 3px 0 3px 10px; border-left: 2px solid var(--line); }
+nav.toc a code { background: none; padding: 0; font-size: .92em; }
+nav.toc a.l3 { padding-left: 22px; color: var(--ink-3); font-size: 12.5px; }
+nav.toc a:hover, nav.toc a:focus-visible { color: var(--accent); border-left-color: var(--accent); outline: none; }
+@media (max-width: 760px) { nav.toc { position: static; margin-bottom: 24px; } nav.toc a.l3 { display: none; } }
+
+main { min-width: 0; max-width: 72ch; }
+main h2 { font-size: 20px; margin: 44px 0 12px; padding-top: 10px; letter-spacing: -0.01em; text-wrap: balance; }
+main h2:first-of-type { margin-top: 0; }
+main h3 { font-size: 16px; margin: 28px 0 8px; color: var(--ink); }
+main p { margin: 0 0 14px; }
+main hr { border: 0; border-top: 1px solid var(--line); margin: 36px 0; }
+main hr:first-child { display: none; }
+main hr + h2 { margin-top: 0; }
+main ul, main ol { padding-left: 22px; margin: 0 0 14px; }
+main li { margin: 4px 0; }
+main blockquote { margin: 0 0 18px; padding: 10px 16px; border-left: 3px solid var(--accent); background: var(--accent-soft); border-radius: 0 6px 6px 0; }
+main blockquote p { margin: 0; }
+code { font-family: var(--font-mono); font-size: .9em; background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+pre { background: var(--code-bg); border: 1px solid var(--line); border-radius: 8px; padding: 12px 14px; overflow-x: auto;
+  margin: 0 0 18px; font-size: 12.8px; line-height: 1.55; }
+pre code { background: none; padding: 0; font-size: inherit; }
+.tw { overflow-x: auto; margin: 0 0 18px; border: 1px solid var(--line); border-radius: 8px; }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+th, td { text-align: left; padding: 8px 12px; border-bottom: 1px solid var(--line); vertical-align: top; }
+th { font-size: 12px; letter-spacing: .04em; color: var(--ink-3); background: var(--surface); font-weight: 600; }
+tr:last-child td { border-bottom: 0; }
+td code, th code { white-space: nowrap; }
+footer { grid-column: 1 / -1; margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line); color: var(--ink-3); font-size: 12.5px; }
+</style>
+
+<div class="wrap">
+<header class="top">
+  <div class="eyebrow">노지작물 재해위험 AI 현장제어 · 기술 해설</div>
+  <h1>센서 수집 기술 해설 — 라즈베리파이 + 센서류</h1>
+  <p>학습용 문서다. '무엇을 만들었나'보다 <strong>'왜 그렇게 만들었나'</strong>를 적는다. 코드를 고칠 사람이 이 문서를 읽고 나면, 어느 줄을 왜 건드리면 안 되는지 알 수 있어야 한다. 운영 절차는 <code>라즈베리파이-배포.md</code>, 공인시험은 <code>STA-시험절차서.md</code> 가 맡는다.</p>
+</header>
+<nav class="toc" aria-label="차례"><div class="lbl">차례</div>
+<a class="l2" href="#0-한-장-요약">0. 한 장 요약</a>
+<a class="l2" href="#1-왜-수집-경로가-셋인가">1. 왜 수집 경로가 셋인가</a>
+<a class="l2" href="#2-데이터-형식-왜-세로-long-인가">2. 데이터 형식 — 왜 세로(long)인가</a>
+<a class="l2" href="#3-설정-configs-devices-yaml">3. 설정 — <code>configs/devices.yaml</code></a>
+<a class="l3" href="#3-1-뜻이-갈리는-필드는-설정이-말한다">3.1 뜻이 갈리는 필드는 설정이 말한다</a>
+<a class="l3" href="#3-2-종류-kinds-와-장치-devices">3.2 종류(kinds)와 장치(devices)</a>
+<a class="l3" href="#3-3-설정에-없는-장치">3.3 설정에 없는 장치</a>
+<a class="l2" href="#4-값의-네-가지-종류">4. 값의 네 가지 종류</a>
+<a class="l3" href="#4-1-측정값-그대로">4.1 측정값 — 그대로</a>
+<a class="l3" href="#4-2-상태값-말을-수치로">4.2 상태값 — 말을 수치로</a>
+<a class="l3" href="#4-3-적산값-차분으로">4.3 적산값 — 차분으로</a>
+<a class="l3" href="#4-4-진단값-따로-남긴다">4.4 진단값 — 따로 남긴다</a>
+<a class="l2" href="#5-측정점-통합-중앙값-그리고-합치면-안-되는-것">5. 측정점 통합 — 중앙값, 그리고 합치면 안 되는 것</a>
+<a class="l3" href="#5-1-같은-것을-여러-점에서-재면-중앙값">5.1 같은 것을 여러 점에서 재면 중앙값</a>
+<a class="l3" href="#5-2-장치마다-다른-것을-재면-합치지-않는다">5.2 장치마다 다른 것을 재면 합치지 않는다</a>
+<a class="l2" href="#6-시간-집계-변수마다-다른-셈">6. 시간 집계 — 변수마다 다른 셈</a>
+<a class="l2" href="#7-점검-받는다-를-증명하는-법">7. 점검 — "받는다"를 증명하는 법</a>
+<a class="l2" href="#8-화면-센서-상태-칸">8. 화면 — 센서 상태 칸</a>
+<a class="l2" href="#9-공인시험과의-연결">9. 공인시험과의 연결</a>
+<a class="l2" href="#10-아직-받을-장비가-없는-것">10. 아직 받을 장비가 없는 것</a>
+<a class="l2" href="#11-직접-해-보기-기록-되돌리기">11. 직접 해 보기 — 기록 되돌리기</a>
+<a class="l2" href="#12-코드-지도">12. 코드 지도</a>
+<a class="l2" href="#13-설계를-한-줄로">13. 설계를 한 줄로</a>
+</nav>
+<main>
+<hr>
+<h2 id="0-한-장-요약">0. 한 장 요약</h2>
+<pre data-lang=""><code> 센서류 ───────────────────────────────┐
+  Zigbee  (Tuya 온습도·토양·밸브·차단기·누수)  SONOFF 동글 → Zigbee2MQTT → zigbee_bridge.py
+  433MHz  (Ecowitt WS90 기상)              RTL-SDR 동글 → rtl_433     → rtl433_bridge.py
+  WiFi    (WS90 를 에코윗 게이트웨이가 중계)   HTTP POST               → ecowitt_receiver.py
+                                        │
+                                        ▼
+                     data/field/*.csv   세로(long) 형식 한 가지
+                     ts, zone, sensor_id, variable, value, unit, quality
+                                        │
+                        ofdf.data.field ▼
+         품질관리(범위) → 측정점 통합(중앙값) → 시간 집계(5분·1시간)
+                                        │
+                                        ▼
+               AI 판단(ofdf.cli edge)  ·  화면(dashboard/data.json)
+                                        │
+                  점검  python -m ofdf.cli sensors  ← &quot;정말 들어오나&quot;를 확인</code></pre>
+<p>세 가지 원칙이 전부를 설명한다.</p>
+<div class="tw"><table><thead><tr><th>원칙</th><th>뜻</th><th>어기면</th></tr></thead><tbody><tr><td><strong>추측하지 않는다</strong></td><td>뜻이 갈리는 값(<code>temperature</code>, <code>state</code>)은 설정이 말해 주지 않으면 버리고 경고한다</td><td>지상 10cm 센서가 조용히 '기온'으로 들어가 서리 판단이 어긋난다</td></tr><tr><td><strong>버리지 않는다</strong></td><td>숫자가 아니어도, 당장 안 써도, 받은 값은 남긴다</td><td>밸브가 열렸는지 모르는 채로 "열어라"만 보낸다</td></tr><tr><td><strong>확인할 수 있어야 한다</strong></td><td>"받는다"는 말은 코드가 계산한 표로 증명한다</td><td>비가 오는 날에야 강수가 비어 있던 것을 안다</td></tr></tbody></table></div>
+<hr>
+<h2 id="1-왜-수집-경로가-셋인가">1. 왜 수집 경로가 셋인가</h2>
+<p>구매한 센서가 서로 다른 전파를 쓴다. 한 경로로 몰 수 없다.</p>
+<div class="tw"><table><thead><tr><th>경로</th><th>장치</th><th>전파</th><th>라즈베리파이에 꽂는 것</th><th>파이썬 모듈</th></tr></thead><tbody><tr><td>Zigbee</td><td>Tuya 온습도·토양·워터밸브·차단기·누수</td><td>Zigbee 3.0 (2.4GHz)</td><td>SONOFF Dongle Plus MG24</td><td><code>ofdf.data.zigbee</code></td></tr><tr><td>433MHz</td><td>Ecowitt WS90 7-in-1</td><td>433.92MHz 전용 RF</td><td>RTL-SDR 동글</td><td><code>ofdf.data.rtl433</code></td></tr><tr><td>WiFi</td><td>(같은 WS90)</td><td>433MHz → 게이트웨이 → WiFi</td><td>없음 (같은 공유기)</td><td><code>ofdf.data.ecowitt</code></td></tr></tbody></table></div>
+<p><strong>WS90 자체에는 와이파이가 없다.</strong> 433MHz 송신만 한다. 그래서 받는 길이 둘이고, <strong>둘 중 하나만</strong> 쓴다. 둘 다 켜면 같은 비가 두 번 들어와 강수가 두 배가 된다 (§7 설정 어긋남 검출이 이것을 잡는다).</p>
+<p>세 경로가 각자 다른 함정을 갖고 있고, 모듈마다 그 함정을 모듈 머리 주석에 적어 두었다.</p>
+<div class="tw"><table><thead><tr><th>경로</th><th>함정</th><th>처리</th></tr></thead><tbody><tr><td>Zigbee</td><td>켜짐·꺼짐이 <strong>문자열</strong>(<code>"ON"</code>)로 온다</td><td><code>STATE_WORDS</code> 로 수치화. 모르는 말은 추측하지 않는다</td></tr><tr><td>Zigbee</td><td><code>energy</code>·<code>water_consumed</code> 가 <strong>누적</strong>이다</td><td><code>CumulativeCounter</code> 로 구간 차분</td></tr><tr><td>433MHz</td><td><code>rain_mm</code> 이 <strong>누적</strong>이다</td><td>같은 카운터</td></tr><tr><td>433MHz</td><td><code>wind_max_m_s</code> 는 <strong>28초 창 최댓값</strong>이지 3초 순간최대가 아니다</td><td><code>wind_gust_window</code> 라는 다른 이름으로 받는다</td></tr><tr><td>433MHz</td><td>페어링이 없어 <strong>이웃집 온도계도 들어온다</strong></td><td>설정의 <code>rf:</code> 에 적은 모델만 받는다</td></tr><tr><td>WiFi</td><td>값이 <strong>야드파운드</strong>다 (°F, mph, inch, inHg)</td><td>수신 즉시 환산</td></tr><tr><td>WiFi</td><td>WS90 강수는 <code>dailyrainin</code> 이 아니라 <strong><code>drain_piezo</code></strong> 다</td><td>압전 이름을 먼저 본다</td></tr><tr><td>WiFi</td><td>보조 채널 번호가 <strong>센서 계열마다 따로</strong> 센다</td><td><code>soil1</code>·<code>leaf1</code>·<code>th1</code> 처럼 계열+번호로 식별</td></tr></tbody></table></div>
+<hr>
+<h2 id="2-데이터-형식-왜-세로-long-인가">2. 데이터 형식 — 왜 세로(long)인가</h2>
+<p>모든 경로가 <strong>한 가지 형식</strong>으로 쓴다.</p>
+<pre data-lang=""><code>ts,zone,sensor_id,variable,value,unit,quality
+2026-10-14T13:37:00,treatment,CN-T1,canopy_temp,3.1,degC,ok
+2026-10-14T13:37:00,treatment,CN-T2,canopy_temp,3.4,degC,ok
+2026-10-14T13:37:00,facility,VALVE-01,valve_state,1.0,bool,ok</code></pre>
+<p>가로 형식(센서마다 컬럼)이 아닌 이유:</p>
+<ul><li><strong>센서를 늘리거나 줄여도 스키마가 바뀌지 않는다.</strong> 컬럼을 추가하는 코드가 없다.</li><li><strong>결측이 '행이 없음'으로 자연스럽게 표현된다.</strong> NaN 을 채워 넣을 일이 없다.</li><li><strong>세 경로가 같은 파일 형식을 쓴다.</strong> 어느 경로로 왔는지는 <code>sensor_id</code> 가 말한다.</li></ul>
+<p><code>quality</code> 는 버리지 않고 표시만 한다. <code>range</code> 는 물리 유효범위 밖(센서 이상 의심), <code>bad</code>·<code>fault</code>·<code>stale</code> 은 읽을 때 NaN 으로 바꾼다 (<code>field.BAD_QUALITY</code>).</p>
+<p>컬럼의 뜻:</p>
+<div class="tw"><table><thead><tr><th>컬럼</th><th>뜻</th><th>정하는 곳</th></tr></thead><tbody><tr><td><code>zone</code></td><td>어느 구간인가 — <code>mast</code>·<code>treatment</code>·<code>control</code>·<code>facility</code></td><td>설정</td></tr><tr><td><code>sensor_id</code></td><td>센서 한 대의 이름 (<code>CN-T1</code>, <code>WS90-01</code>)</td><td>설정</td></tr><tr><td><code>variable</code></td><td>우리가 정한 변수 이름 (<code>canopy_temp</code>) — 장치의 필드 이름이 <strong>아니다</strong></td><td><code>field.FIELD_VARIABLES</code></td></tr><tr><td><code>value</code></td><td>수치. 상태는 0/1</td><td></td></tr><tr><td><code>unit</code></td><td>단위. <code>FIELD_VARIABLES</code> 가 정한다</td><td></td></tr></tbody></table></div>
+<p><strong>변수 이름이 장치 필드 이름과 다른 것이 핵심이다.</strong> 장치는 <code>temperature</code> 라고 보내지만 우리는 <code>t_air</code>·<code>canopy_temp</code>·<code>soil_temp</code> 로 받는다. 이 번역이 §3 의 설정이다.</p>
+<hr>
+<h2 id="3-설정-configs-devices-yaml">3. 설정 — <code>configs/devices.yaml</code></h2>
+<p>포장에 무엇이 달려 있는지를 <strong>한 파일</strong>에 적는다. 경로마다 나눠 적으면 한쪽만 고치는 날이 온다. 칸이 넷이다.</p>
+<pre data-lang="yaml"><code>kinds:      # 센서 종류별 매핑 (같은 모델 여러 대 → 한 번만 적는다)
+devices:    # Zigbee 장치 (Zigbee2MQTT friendly_name 이 열쇠)
+rf:         # 433MHz 장치 (rtl_433 의 model 또는 model/id 가 열쇠)
+ecowitt:    # 에코윗 게이트웨이와 보조 채널</code></pre>
+<h3 id="3-1-뜻이-갈리는-필드는-설정이-말한다">3.1 뜻이 갈리는 필드는 설정이 말한다</h3>
+<p>같은 <code>temperature</code> 라도 어디에 달렸느냐에 따라 다른 변수다.</p>
+<pre data-lang=""><code>2m 폴대    → t_air        (기온)
+지상 10cm  → canopy_temp  (초관부 온도)   ← 서리 판단의 핵심
+흙 속      → soil_temp    (지온)
+밸브 몸체  → &quot;&quot;           (버린다)</code></pre>
+<p>서리 판단은 이 셋을 구분하지 못하면 성립하지 않는다. 그래서 <code>temperature</code>· <code>humidity</code>·<code>state</code> 는 <strong>기본값이 없다</strong> (<code>zigbee.AMBIGUOUS_FIELDS</code>). 설정에 적지 않으면 그 값은 버려지고 수집 로그에 사유가 남는다:</p>
+<pre data-lang=""><code>[확인 필요] canopy-treat-03.temperature: 장치 종류·설치 위치로 뜻이 갈리는 필드다.
+            설정의 map 에 어느 변수인지 적어야 한다</code></pre>
+<p>조용히 기본값으로 들어가는 것보다 <strong>눈에 보이게 빠지는 것이 낫다.</strong> <code>state</code> 도 같다 — 밸브의 <code>state</code> 는 열림·닫힘이고 차단기의 <code>state</code> 는 통전·차단이다.</p>
+<h3 id="3-2-종류-kinds-와-장치-devices">3.2 종류(kinds)와 장치(devices)</h3>
+<p>센서는 여러 대 붙는다. 매핑을 장치마다 적으면 토양센서 넉 대에 같은 줄을 네 번 적고, 하나만 고치는 날이 온다.</p>
+<pre data-lang="yaml"><code>kinds:
+  soil:
+    map: {temperature: soil_temp}          # 뜻을 바로잡아야 하는 필드
+    sends: [soil_moisture, battery, linkquality]   # 기본 매핑이 맞는 필드
+
+devices:
+  soil-treat-01: {kind: soil, zone: treatment, sensor_id: SOIL-T1, note: 깊이 10cm}
+  soil-treat-02: {kind: soil, zone: treatment, sensor_id: SOIL-T2, note: 깊이 20cm}
+  soil-ctrl-01:  {kind: soil, zone: control,   sensor_id: SOIL-C1}</code></pre>
+<ul><li><code>map</code> — 장치 필드 → 우리 변수. 빈 문자열(<code>""</code>)은 '버려라'.</li><li><code>sends</code> — 수집에는 영향이 없다. §7 점검이 '이 장치가 무엇을 보내는가'를 알기 위해 쓴다. 적지 않아도 값은 들어온다.</li><li>장치에 <code>map</code> 을 적으면 종류의 것 <strong>위에 덮인다.</strong> 예비 온습도계를 2m 에 달아 기온으로 쓰려면 그 장치만 <code>map: {temperature: t_air}</code>.</li><li>종류 없이 장치에 직접 적어도 된다.</li></ul>
+<h3 id="3-3-설정에-없는-장치">3.3 설정에 없는 장치</h3>
+<p>페어링은 했는데 설정에 안 적은 장치의 값은 <strong>버려진다</strong> (<code>모르는 장치</code>). 화면에는 아무것도 안 나오므로 고장과 구별이 안 된다. 그래서 브리지가 Zigbee2MQTT 의 페어링 목록(<code>bridge/devices</code>)을 <code>capture/zigbee_devices.json</code> 에 남기고, 점검이 설정과 맞댄다 (§7).</p>
+<hr>
+<h2 id="4-값의-네-가지-종류">4. 값의 네 가지 종류</h2>
+<p>장치가 보내는 필드는 성격이 넷이고, 각각 다르게 다룬다.</p>
+<h3 id="4-1-측정값-그대로">4.1 측정값 — 그대로</h3>
+<p><code>FIELD_VARIABLES</code> 에 있는 변수. 단위와 물리 유효범위가 적혀 있다.</p>
+<pre data-lang="python"><code>&quot;canopy_temp&quot;: (&quot;degC&quot;, -25.0, 50.0),
+&quot;soil_moisture&quot;: (&quot;%&quot;, 0.0, 100.0),</code></pre>
+<p>범위를 벗어나면 <code>quality=range</code> 로 <strong>표시만</strong> 한다. 버리는 것은 통합 단계 (<code>reconcile_points</code>)이고, 그마저도 <code>CLAMP_TOLERANCE</code> 안이면 경계로 자른다 — 일사계는 야간에 -20 W/m² 를 정상적으로 내보내는데 이것을 지우면 야간 일사가 통째로 결측이 된다.</p>
+<h3 id="4-2-상태값-말을-수치로">4.2 상태값 — 말을 수치로</h3>
+<pre data-lang="python"><code>STATE_WORDS = {&quot;on&quot;: 1.0, &quot;off&quot;: 0.0, &quot;open&quot;: 1.0, &quot;closed&quot;: 0.0,
+               &quot;detected&quot;: 1.0, &quot;clear&quot;: 0.0, &quot;wet&quot;: 1.0, &quot;dry&quot;: 0.0, ...}</code></pre>
+<p><code>zigbee.to_number()</code> 가 참·거짓, 숫자, 상태말을 모두 수치로 읽는다. <strong>모르는 말은 추측하지 않고 <code>None</code></strong> — 밸브 상태를 거꾸로 읽으면 관수했다고 기록하면서 작물은 마른다.</p>
+<p>이것이 빠져 있던 것이 가장 큰 구멍이었다. 밸브와 차단기는 자기 상태를 문자열로 보내는데 '숫자가 아니라서' 버려지고 있었다. 명령은 보냈는데 실행됐는지 모르는 상태 — 공인시험 T-07(제어응답)이 묻는 것이 바로 그것이다.</p>
+<h3 id="4-3-적산값-차분으로">4.3 적산값 — 차분으로</h3>
+<pre data-lang=""><code>rtl_433   rain_mm          초기화 이후 누적 강수
+에코윗     dailyrainin      그날 누적 (자정에 0)
+Zigbee    energy           설치 이후 누적 전력량
+Zigbee    water_consumed   설치 이후 누적 관수량</code></pre>
+<p>그대로 넣으면 5분 강수가 수백 mm 로 잡힌다. <code>ofdf.data.counter.CumulativeCounter</code> 한 곳이 넷을 다 처리한다:</p>
+<pre data-lang="python"><code>c = CumulativeCounter()
+c.step(&quot;pump&quot;, 10.0)   # 0.0   처음 본 값은 기준점
+c.step(&quot;pump&quot;, 12.5)   # 2.5
+c.step(&quot;pump&quot;, 0.0)    # 0.0   줄어들면(초기화·교체) 그 구간은 0 — 음수를 내지 않는다</code></pre>
+<p><strong>적산값은 유량·전류보다 한 수 위다.</strong> 1분마다 재는 유량계는 30초짜리 관수를 통째로 놓치지만 적산 수량계는 놓치지 않는다. 30초를 재는 T-07 에서 이것이 결정적이다.</p>
+<p>카운터는 <strong>메시지 사이에 이어서</strong> 세야 한다. 브리지가 하나를 만들어 모든 메시지에 넘긴다 — 메시지마다 새로 만들면 매번 '처음 본 값'이 되어 늘 0 이다.</p>
+<h3 id="4-4-진단값-따로-남긴다">4.4 진단값 — 따로 남긴다</h3>
+<p>작물 위험과 무관하지만 <strong>자료가 끊기기 전에 알려 주는 유일한 신호</strong>.</p>
+<div class="tw"><table><thead><tr><th>변수</th><th>뜻</th><th>경로</th></tr></thead><tbody><tr><td><code>battery_pct</code> / <code>battery_mv</code> / <code>battery_v</code></td><td>배터리</td><td>장치마다 다른 단위로 온다</td></tr><tr><td><code>supercap_v</code></td><td>WS90 태양광 슈퍼캡 전압</td><td>흐린 날 이어지면 떨어지며 송신이 끊긴다</td></tr><tr><td><code>linkquality</code> (0~255) / <code>rssi</code> (dB)</td><td>전파 세기</td><td>Zigbee / 433MHz — 숫자의 뜻이 다르다</td></tr><tr><td><code>device_temp</code></td><td>차단기 본체 온도</td><td>과열은 화재 전조</td></tr></tbody></table></div>
+<p>배터리가 떨어지거나 전파가 약해지는 것은 서서히 진행된다. 값이 사라진 뒤가 아니라 <strong>사라지기 전에</strong> 보여야 하므로 화면의 센서 상태 칸이 이것을 읽는다.</p>
+<hr>
+<h2 id="5-측정점-통합-중앙값-그리고-합치면-안-되는-것">5. 측정점 통합 — 중앙값, 그리고 합치면 안 되는 것</h2>
+<h3 id="5-1-같은-것을-여러-점에서-재면-중앙값">5.1 같은 것을 여러 점에서 재면 중앙값</h3>
+<p>설계는 구간마다 초관부 온도 2점·토양 2점이다. <code>reconcile_points()</code> 가 같은 <code>(ts, zone, variable)</code> 의 여러 점을 <strong>중앙값</strong>으로 합친다.</p>
+<pre data-lang=""><code>CN-T1 3.0, CN-T2 3.4, CN-T3 9.9   →  3.4   (9.9 에 끌려가지 않는다)</code></pre>
+<p>평균이 아닌 이유: 한 점이 고장나거나 국소 그늘에서 벗어나도 판단이 흔들리지 않아야 한다. 점 사이 벌어짐(<code>spread</code>)을 함께 남겨 센서 이상 신호로 쓴다 (<code>spread_alarm</code>).</p>
+<p><strong>2점이 설계의 최소다.</strong> 1점이면 그 센서가 죽는 순간 그 구간의 판단이 빈다. §7 점검이 1점인 곳에 ▲ 를 붙인다.</p>
+<h3 id="5-2-장치마다-다른-것을-재면-합치지-않는다">5.2 장치마다 다른 것을 재면 합치지 않는다</h3>
+<p>밸브 세 개는 세 라인이고 차단기 두 개는 두 회로다. 하나가 열리고 둘이 닫혀 있을 때 중앙값 0 은 '닫혔다'는 <strong>거짓</strong>이다.</p>
+<pre data-lang="python"><code>PER_DEVICE_VARIABLES = {&quot;valve_state&quot;, &quot;circuit_state&quot;, &quot;pump_current&quot;,
+                        &quot;irrigation_flow&quot;, &quot;irrigation_volume&quot;, ...}</code></pre>
+<p>이 변수들은 장치별로 남아 컬럼이 <code>zone.SENSOR.variable</code> 이 된다:</p>
+<pre data-lang=""><code>treatment.canopy_temp               ← 2점 중앙값 (구간 컬럼)
+facility.VALVE-01.valve_state       ← 장치별 컬럼
+facility.VALVE-02.valve_state
+facility.PUMP-01.pump_energy</code></pre>
+<p><code>zone_frame()</code> 은 마디가 둘인 컬럼만 모델 입력으로 고른다. 밸브 세 개의 상태가 특징으로 새어 들어가지 않는다.</p>
+<p>역할이 다른 회로는 <strong>변수 이름도 다르다</strong> — 관수펌프 <code>circuit_state</code>· <code>pump_current</code>, 보조회로 <code>aux_circuit_state</code>·<code>motor_current</code>. 제어 논리가 '펌프가 돌았나'를 물을 때 보조회로를 섞어 보면 안 되기 때문이다.</p>
+<hr>
+<h2 id="6-시간-집계-변수마다-다른-셈">6. 시간 집계 — 변수마다 다른 셈</h2>
+<p>'1분 수집·5분 집계', AI 는 1시간 격자. <code>resample()</code> 이 변수 성격대로 모은다.</p>
+<div class="tw"><table><thead><tr><th>방식</th><th>변수</th><th>이유</th></tr></thead><tbody><tr><td><code>sum</code></td><td><code>rain</code>, <code>irrigation_volume</code>, <code>pump_energy</code></td><td>양이다. 구간에 얼마나 왔나</td></tr><tr><td><code>mean</code></td><td>온도·습도·풍속·<strong>유량</strong></td><td>비율·상태량이다</td></tr><tr><td><code>max</code></td><td><code>wind_gust_*</code>, <code>rain_detect</code>, <code>valve_state</code>, <code>circuit_state</code></td><td>한 번이라도 있었으면 있었던 것</td></tr></tbody></table></div>
+<p><strong>유량은 더하면 안 된다.</strong> 1분마다 잰 43 L/min 다섯 개를 더하면 216 L/min — 단위는 L/min 인데 값은 아니게 된다. 구간에 흘러간 양을 묻는 자리는 적산 수량계(<code>irrigation_volume</code>)가 답한다. (끝에서 끝까지 돌려 보다 잡은 버그다.)</p>
+<p><strong>상태는 평균을 내면 뜻이 사라진다.</strong> 5분 동안 한 번이라도 열렸으면 '열렸다'가 그 구간의 사실이다 — 제어응답 확인은 그것을 묻는다. 밸브가 0.4 만큼 열린 적은 없다.</p>
+<hr>
+<h2 id="7-점검-받는다-를-증명하는-법">7. 점검 — "받는다"를 증명하는 법</h2>
+<pre data-lang="bash"><code>python -m ofdf.cli sensors --devices configs/devices.yaml --field data/field</code></pre>
+<p>'모든 센서 데이터를 받는다'는 말은 확인할 수 있어야 한다. 센서를 달고 화면에 뭔가 나오는 것을 보고 끝내면, 빠진 변수는 비가 오는 날이나 서리가 내리는 날에야 드러난다. <code>ofdf.data.coverage</code> 가 변수마다 상태를 매긴다.</p>
+<div class="tw"><table><thead><tr><th>상태</th><th>뜻</th><th>근거</th></tr></thead><tbody><tr><td><code>수신확인</code></td><td>수집 파일에 <strong>실제로 값이 있다</strong></td><td>수집 자료</td></tr><tr><td><code>연결됨</code></td><td>설정에 적힌 장치가 보낸다. 아직 받은 기록은 없다</td><td>설정 × 매핑표 × 모델별 필드</td></tr><tr><td><code>경로있음</code></td><td>매핑은 있는데 보내는 장치가 설정에 없다</td><td>매핑표</td></tr><tr><td><code>대리지표</code></td><td>실측 장비가 없어 다른 관측값으로 계산한다</td><td><code>PROXY_VARIABLES</code></td></tr><tr><td><code>장비없음</code></td><td>받을 길이 없다. 무엇을 사면 되는지 함께 나온다</td><td><code>MISSING_HARDWARE</code></td></tr></tbody></table></div>
+<p><strong>표는 매핑표에서 직접 계산한다.</strong> 손으로 적은 목록을 두면 매핑을 고친 날 목록이 틀어지고, 틀어진 목록은 없는 것보다 나쁘다 — 받고 있다고 적혀 있으니 아무도 확인하지 않는다.</p>
+<p><strong>없는 센서를 있다고 적지 않는다.</strong> 환산표(<code>RTL433_MAP</code>)에 <code>leaf_wetness</code> 가 있는 것은 WH35 를 사면 같은 동글로 들어오기 때문이지, WS90 이 엽면습윤을 잰다는 뜻이 아니다. 그래서 모델별로 <strong>실제로 보내는 필드</strong>(<code>MODEL_FIELDS</code>, <code>SENSOR_FIELDS</code>)를 따로 두고, 점검은 그것을 본다. 모르는 모델은 '받는다'고 단정하지 않는다.</p>
+<p>표 아래에 셋이 더 나온다.</p>
+<ul><li><strong>[측정점]</strong> 구간·변수별 센서 수. 1점에 ▲.</li><li><strong>[미설정 장치]</strong> 페어링됐는데 설정에 없는 장치, 모델명과 함께.</li><li><strong>[설정 확인]</strong> WS90 을 두 경로로 동시에 받는 등 어긋남.</li></ul>
+<p><code>--json</code> 은 기계가 읽을 형식, <code>--strict</code> 는 문제가 있으면 종료코드 1 (CI 용). 모델을 읽지 않으므로 학습 전에도 돈다.</p>
+<hr>
+<h2 id="8-화면-센서-상태-칸">8. 화면 — 센서 상태 칸</h2>
+<p><code>ofdf.cli</code> 의 <code>sensor_status()</code> 가 장치마다 마지막 상태를 <code>data.json</code> 의 <code>sensors</code> 로 내보내고, <code>dashboard/index.html</code> 이 그린다.</p>
+<ul><li><strong>구간별로 묶고</strong> '4/4대 수신 중'을 머리에 적는다. 카드를 다 읽지 않아도 어느 구간이 비어 가는지 보인다.</li><li>30분 넘게 소식이 없으면 빨간 띠, 배터리 20% 이하·슈퍼캡 2.6V 이하면 노란 띠.</li><li><strong>되읽기 상태</strong>(<code>관수 밸브 열림</code>, <code>관수 회로 통전</code>, <code>침수 정상</code>)를 말로 보여 준다. 마지막 값이다. 색만으로 구분하지 않는다 — 햇빛에 화면이 씻겨도 읽혀야 한다.</li><li>전파 세기는 Zigbee <code>linkquality</code> 와 433MHz <code>RSSI(dB)</code> 가 다른 숫자라 단위를 붙여 구분한다.</li></ul>
+<p>화면은 별도 서버가 아니다. 판단 서비스가 <code>data.json</code> 을 원자적으로 바꿔 쓰고 브라우저가 30초마다 다시 읽는다. 통신이 끊겨도 같은 기계 안에서 돈다.</p>
+<hr>
+<h2 id="9-공인시험과의-연결">9. 공인시험과의 연결</h2>
+<p><strong>T-07 제어응답 30초 이내.</strong> 지시 기록(<code>logs/journal.jsonl</code> 의 <code>actions</code>)은 '명령을 보냈다'는 사실이고, <code>valve_state</code>·<code>circuit_state</code> 는 '장치가 그렇게 됐다'는 사실이다. 시험이 묻는 것은 뒤쪽이다. 측정의 끝점을 이 되읽기 값으로 정했고, 수집 주기가 분해능을 정하므로 시험 중에는 보고 주기를 짧게 둔다.</p>
+<p><strong>T-06 저장률·T-08 72시간 독립운전.</strong> 받은 원본을 <code>capture/</code> 에 그대로 남기므로 (<code>--replay</code>) 현장에 나가지 않고 같은 자료로 파이프라인을 다시 돌릴 수 있다. 재현 절차가 이것으로 성립한다.</p>
+<hr>
+<h2 id="10-아직-받을-장비가-없는-것">10. 아직 받을 장비가 없는 것</h2>
+<p>점검표가 <code>장비없음</code> 으로 알리는 다섯 가지와, 무엇을 사면 되는지.</p>
+<div class="tw"><table><thead><tr><th>변수</th><th>왜 없나</th><th>사면 되는 것</th></tr></thead><tbody><tr><td><code>wind_gust_1s</code>, <code>wind_gust_3s</code></td><td>WS90 은 2초 간격 계측이라 28초 창 최댓값(<code>wind_gust_window</code>)만 준다</td><td>초음파 풍속계(RS-485) 또는 1초 샘플링 풍속계</td></tr><tr><td><code>leaf_wetness</code></td><td>엽면습윤 센서가 없다. 대리지표로 계산 중</td><td><strong>Ecowitt WH35</strong> — 게이트웨이에 붙이면 코드 수정 없이 들어온다</td></tr><tr><td><code>soil_ec</code></td><td>구매한 토양센서는 수분·온도만</td><td>3-in-1(수분·온도·EC) 센서</td></tr><tr><td><code>shade_position</code></td><td>차광 구동부 별도 진행</td><td>구동부와 함께</td></tr><tr><td><code>spray_flow</code></td><td>살수 라인 유량계 없음</td><td>같은 Zigbee 밸브 1대, <code>map: {flow: spray_flow}</code></td></tr><tr><td><code>emergency_stop</code></td><td>비상정지 접점 없음</td><td>Zigbee 접점 입력 모듈(dry contact)</td></tr></tbody></table></div>
+<p>제어기는 참 3초 계측값이 없으면 <code>wind_gust_window</code> 로 물러서되 <strong>조치 사유에 어느 쪽인지 적는다</strong> — 농가 화면이 '3초 순간최대'라고 적는데 실제로는 28초 창 값인 상태를 만들지 않는다.</p>
+<hr>
+<h2 id="11-직접-해-보기-기록-되돌리기">11. 직접 해 보기 — 기록 되돌리기</h2>
+<p>현장에 나가지 않고 전체 경로를 돌려 볼 수 있다. 저장된 원본 기록(JSON Lines)을 브리지가 그대로 읽는다.</p>
+<pre data-lang="bash"><code># 1. Zigbee 기록 → 수집 CSV
+python scripts/zigbee_bridge.py --replay data/field/capture/capture_20261014.jsonl \
+    --devices configs/devices.yaml --out /tmp/replay
+
+# 2. 433MHz 기록 → 수집 CSV
+python scripts/rtl433_bridge.py --replay data/field/capture/rtl433_20261014.jsonl \
+    --out /tmp/replay
+
+# 3. 에코윗 기록 → 수집 CSV
+python scripts/ecowitt_receiver.py --replay data/field/capture/ecowitt_20261014.jsonl \
+    --out /tmp/replay
+
+# 4. 무엇이 들어왔나
+python -m ofdf.cli sensors --field /tmp/replay
+
+# 5. 통합·집계를 직접 보기
+python - &lt;&lt;&#x27;PY&#x27;
+from ofdf.data import field
+raw  = field.read_field(&quot;/tmp/replay&quot;)          # 세로 형식 그대로
+rec  = field.reconcile_points(raw)              # 중앙값 통합 (+ point 컬럼)
+wide = field.to_wide(rec)                       # zone.variable / zone.SENSOR.variable
+agg  = field.resample(wide, &quot;5min&quot;)             # 변수별 sum/mean/max
+print(agg.filter(like=&quot;facility.VALVE-01&quot;).tail())
+PY</code></pre>
+<p>메시지 한 건을 손으로 넣어 보는 것이 가장 빠른 학습이다:</p>
+<pre data-lang="python"><code>from ofdf.data import zigbee
+devices = zigbee.load_devices(&quot;configs/devices.yaml&quot;)
+unknown = []
+rows = zigbee.message_to_rows(
+    &quot;zigbee2mqtt/valve-treat-01&quot;,
+    {&quot;state&quot;: &quot;ON&quot;, &quot;flow&quot;: 14.2, &quot;water_consumed&quot;: 141.5, &quot;temperature&quot;: 12.5},
+    devices, unknown=unknown)
+for r in rows: print(r[&quot;variable&quot;], r[&quot;value&quot;], r[&quot;unit&quot;])
+print(unknown)      # 비어 있어야 한다 — temperature 는 설정이 &quot;&quot;(버려라)로 답했다</code></pre>
+<p>기록 없이도 시험이 같은 것을 한다: <code>tests/test_zigbee.py</code>, <code>test_rtl433.py</code>, <code>test_ecowitt.py</code>, <code>test_field.py</code>, <code>test_coverage.py</code>. 시험 이름이 한국어 문장이라 그 자체가 명세다 — <code>test_밸브가_여럿이면_장치별로_남는다</code>.</p>
+<hr>
+<h2 id="12-코드-지도">12. 코드 지도</h2>
+<pre data-lang=""><code>src/ofdf/data/
+  field.py      변수 목록(FIELD_VARIABLES)·집계 규칙·품질관리·측정점 통합·가로 변환
+  counter.py    적산 → 구간 차분. 세 경로가 공유
+  zigbee.py     Z2M 메시지 → 세로 형식. 종류/장치 설정, 상태말, 페어링 목록, 화면용 상태
+  rtl433.py     rtl_433 JSON → 세로 형식. 모델별 필드, rf: 설정
+  ecowitt.py    게이트웨이 POST → 세로 형식. 단위 환산, 압전 강수, 보조 채널
+  coverage.py   수집 범위 점검 — 매핑표에서 상태를 계산
+
+scripts/
+  zigbee_bridge.py     MQTT 구독 → CSV + capture. bridge/devices 저장
+  rtl433_bridge.py     rtl_433 표준출력 → CSV + capture
+  ecowitt_receiver.py  HTTP 서버 → CSV + capture
+
+src/ofdf/cli.py        edge(상주) / once / sensors(점검). sensor_status() 가 화면용
+configs/devices.yaml   kinds / devices / rf / ecowitt
+dashboard/index.html   센서 상태 칸 renderSensors()</code></pre>
+<p>고칠 때 지킬 것:</p>
+<ul><li><strong>변수를 새로 더하면</strong> <code>FIELD_VARIABLES</code> 에 단위·범위, <code>TIME_AGGREGATION</code> 에 셈, 받을 경로가 없으면 <code>MISSING_HARDWARE</code> 에 설명. 시험이 셋째를 강제한다.</li><li><strong>장치 종류를 더하면</strong> <code>kinds:</code> 에 한 칸. 코드는 안 건드린다.</li><li><strong>433MHz 모델을 더하면</strong> <code>MODEL_FIELDS</code> 에 실제로 보내는 필드. 없으면 점검이 '받는다'고 단정하지 않는다 — 그게 맞다.</li><li><strong><code>AMBIGUOUS_FIELDS</code> 에 기본값을 두고 싶어지면</strong> 멈춘다. 그것이 §3.1 이다.</li></ul>
+<hr>
+<h2 id="13-설계를-한-줄로">13. 설계를 한 줄로</h2>
+<blockquote><p>센서가 보내는 것을 <strong>하나도 조용히 버리지 않고</strong>, 뜻이 갈리는 것은 <strong>설정이 말하게 하고</strong>, 받고 있다는 말은 <strong>코드가 계산한 표로 증명한다.</strong></p></blockquote>
+</main>
+<footer>원본: <code>docs/센서수집-기술해설.md</code> · 저장소 문서와 같은 내용이다. 고칠 때는 마크다운을 고치고 이 페이지를 다시 만든다.</footer>
+</div>
