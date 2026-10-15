@@ -185,3 +185,29 @@ ecowitt:
     #   note: 비교구간 지상 10cm · 라디에이션 실드
     #   map:
     #     t_air: canopy_temp       # 지상 10cm 이므로 기온이 아니다
+
+# ── RS-485 수질 센서 (있을 때만) ────────────────────────────────
+# 라즈베리파이 하드웨어가 Shrimp365 수질 장비와 같다. 거기 쓰던 USB-RS485
+# 변환기와 Nengshi 센서(pH·DO·EC)를 그대로 꽂으면 관수원수·양액 수질이 들어온다.
+# 프로토콜·레지스터·슬레이브 ID 가 Shrimp365 설정과 같다.
+#
+# 노지 대파 실증에서 수질은 보조 지표라 **기본은 꺼짐**이다. 변환기를 꽂고
+# enabled: true 로 바꾸면 ofdf-modbus 서비스가 돈다. 꽂혀 있지 않으면
+# 서비스는 시작하지 않고(ConditionPathExists) 나머지 수집에 영향이 없다.
+#
+#   python scripts/modbus_bridge.py --scan     # 선을 훑어 어느 ID 에 무엇이 있나
+#   python scripts/modbus_bridge.py --check    # 지금 한 번 읽어 센서별 상태
+rs485:
+  enabled: false
+  port: /dev/ttyUSB0            # GPIO UART 면 /dev/serial0
+  baudrate: 9600
+  zone: facility
+  sensor_id: WQ-01
+  note: 관수원수 수질 · USB-RS485
+  sensors:                      # 슬레이브 ID. 없는 센서는 줄을 지운다
+    ph: 1                       # pH·ORP·수온
+    do: 3                       # 용존산소·포화도·수온
+    ec: 4                       # 전도도·TDS (염도는 전도도에서 환산)
+    # flow: 5                   # 유량 (같은 계열 변환기일 때)
+    # dp: 6                     # 차압 (필터·UV 막힘)
+  interval_seconds: 60

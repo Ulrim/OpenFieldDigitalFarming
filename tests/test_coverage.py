@@ -194,7 +194,8 @@ def test_기본매핑으로_안_들어오는_변수는_전부_설명이_있다()
     알 수 없다. 변수를 새로 더하는 사람이 그 한 줄을 쓰도록 여기서 막는다.
     """
     available = coverage._zigbee_available()
-    for source in (coverage._rf_available(), coverage._ecowitt_available()):
+    for source in (coverage._rf_available(), coverage._ecowitt_available(),
+                   coverage._rs485_available()):
         available.update(source)
     for variable in FIELD_VARIABLES:
         if variable in available or variable in coverage.PROXY_VARIABLES:

@@ -75,6 +75,17 @@ FIELD_VARIABLES: dict[str, tuple[str, float, float]] = {
     "spray_flow": ("L/min", 0.0, 500.0),
     "enclosure_flood": ("bool", 0.0, 1.0),
     "emergency_stop": ("bool", 0.0, 1.0),
+    #: 관수원수·양액 수질 (RS-485, 수질 센서가 있을 때만). Shrimp365 와 같은
+    #: 하드웨어가 꽂히므로 이름은 water_* 로 묶고 단위는 농업 관례를 따른다.
+    "water_temp": ("degC", -5.0, 60.0),
+    "water_ph": ("pH", 0.0, 14.0),
+    "water_orp": ("mV", -2000.0, 2000.0),
+    "water_do": ("mg/L", 0.0, 30.0),
+    "water_do_sat": ("%", 0.0, 200.0),
+    "water_ec": ("mS/cm", 0.0, 200.0),      # = dS/m. 관수원수 염해 기준 ~1.5
+    "water_tds": ("ppm", 0.0, 100000.0),
+    "water_salinity": ("ppt", 0.0, 50.0),
+    "diff_pressure": ("kPa", 0.0, 1000.0),  # 필터·UV 막힘 감시
     #: 구동부가 '명령대로 됐는지' 를 말해 주는 되읽기 값.
     #: 지시(actions)와 달리 장치가 스스로 보고하는 실제 상태다.
     "valve_state": ("bool", 0.0, 1.0),     # 0 닫힘 / 1 열림
@@ -105,7 +116,7 @@ PER_DEVICE_VARIABLES = frozenset({
     "pump_power", "aux_power", "pump_energy", "aux_energy",
     "pump_current", "motor_current",
     "irrigation_flow", "irrigation_volume", "spray_flow",
-    "shade_position", "enclosure_flood", "emergency_stop",
+    "shade_position", "enclosure_flood", "emergency_stop", "diff_pressure",
 })
 
 #: 시간 집계 방식. 강수는 적산, 돌풍은 최댓값, 나머지는 평균이다.

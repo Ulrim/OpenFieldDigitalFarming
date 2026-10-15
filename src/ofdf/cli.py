@@ -261,6 +261,10 @@ def non_zigbee_devices(devices_path: Path) -> dict[str, tuple[str, str]]:
             out.setdefault(gateway.sensor_id, (gateway.zone, gateway.note))
         for channel in channels.values():
             out[channel.sensor_id] = (channel.zone, channel.note)
+        from ofdf.data import modbus
+        rs = modbus.load_rs485(devices_path)
+        if rs.enabled:
+            out[rs.sensor_id] = (rs.zone, rs.note)
     except Exception as exc:                 # 설정이 깨져도 화면은 떠야 한다
         LOG.warning("비 Zigbee 장치 목록을 읽지 못했다: %s", exc)
     return out

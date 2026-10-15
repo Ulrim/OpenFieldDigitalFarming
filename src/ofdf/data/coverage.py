@@ -36,7 +36,7 @@ from typing import Any
 
 import pandas as pd
 
-from ofdf.data import ecowitt, rtl433, zigbee
+from ofdf.data import ecowitt, modbus, rtl433, zigbee
 from ofdf.data.field import FIELD_VARIABLES, PER_DEVICE_VARIABLES
 
 #: 실측 장비가 없을 때 대리지표로 계산되는 변수.
@@ -149,6 +149,16 @@ def observed_variables(frame: pd.DataFrame | None) -> dict[str, dict[str, Any]]:
     return out
 
 
+def _rs485_available() -> dict[str, list[str]]:
+    """RS-485 경로가 매핑을 가진 변수(변환기와 센서를 꽂고 켜면 들어온다)."""
+    out: dict[str, list[str]] = {}
+    for spec in modbus.SENSOR_SPECS.values():
+        for variable in spec.fields:
+            out.setdefault(variable, []).append(f"RS485 {spec.label}")
+    out.setdefault("water_salinity", []).append("RS485 전도도(환산)")
+    return out
+
+
 def coverage(
     devices_path: str | Path | None = None,
     observed: pd.DataFrame | None = None,
@@ -221,8 +231,25 @@ def coverage(
                 connected.setdefault(mapped, []).append(
                     f"에코윗 {channel.sensor_id}")
 
+    # RS-485 수질 센서 — 켜 두었을 때만 '연결됨'. 꺼져 있으면 꽂고 켜면 되는 '경로있음'.
+    rs485_available = _rs485_available()
+    if devices_path and Path(devices_path).exists():
+        try:
+            rs = modbus.load_rs485(devices_path)
+            if rs.enabled:
+                for key, slave in rs.sensors.items():
+                    spec = modbus.SENSOR_SPECS[key]
+                    for variable in spec.fields:
+                        connected.setdefault(variable, []).append(
+                            f"RS485 {rs.sensor_id}.{spec.label}(ID{slave})")
+                    if key == "ec":
+                        connected.setdefault("water_salinity", []).append(
+                            f"RS485 {rs.sensor_id}.전도도(환산)")
+        except Exception:
+            pass
+
     available = _zigbee_available()
-    for source in (_rf_available(), _ecowitt_available(), tentative):
+    for source in (_rf_available(), _ecowitt_available(), tentative, rs485_available):
         for variable, paths in source.items():
             available.setdefault(variable, []).extend(paths)
 
